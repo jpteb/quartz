@@ -1,0 +1,8 @@
+[package]
+name = "quartz"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jan Philipp Tebernum <jan.tebernum@pm.me>"]
+
+[dependencies]
+any_vec = "0.14.0"

@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly"
+profile = "minimal"
+components = [ "rust-src", "rust-std", "rust-docs", "rustfmt", "rust-analyzer", "clippy", "miri" ]
