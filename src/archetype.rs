@@ -1,10 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    component::{Component, ComponentId, Components}, storage::BlobVec, Entity
+    component::{Component, ComponentId, Components}, storage::{Table, TableId}, Entity
 };
-
-type Column = BlobVec;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EntityRecord {
@@ -20,17 +18,16 @@ pub(crate) struct ArchetypeComponents {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ArchetypeId(pub(crate) usize);
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Archetype {
     id: ArchetypeId,
     entities: Vec<EntityRecord>,
     components: HashMap<ComponentId, ArchetypeRecord>,
-    data: Vec<Column>,
+    table: TableId,
 }
 
 impl Archetype {
-    pub fn new(id: ArchetypeId, components: Components) -> Self {
-        let mut data = Vec::new();
+    pub fn new(id: ArchetypeId, table: TableId, components: Components) -> Self {
         let mut comps = HashMap::new();
 
         for component_id in components.components() {
@@ -38,18 +35,16 @@ impl Archetype {
                 component_id,
                 ArchetypeRecord {
                     id,
-                    column: data.len(),
+                    column: comps.len(),
                 },
             );
-
-            data.push(Column::new());
         }
 
         Self {
             id,
             entities: Vec::new(),
             components: comps,
-            data,
+            table,
         }
     }
 

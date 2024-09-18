@@ -21,12 +21,18 @@ impl ComponentId {
 }
 
 #[derive(Debug)]
-struct ComponentInfo {
+pub(crate) struct ComponentInfo {
     id: ComponentId,
     name: Cow<'static, str>,
     type_id: TypeId,
-    layout: Layout,
+    pub(crate) layout: Layout,
 }
+
+// impl ComponentInfo {
+//     pub(crate) fn new<T: Component>() -> Self {
+//         
+//     }
+// }
 
 #[derive(Debug)]
 pub(crate) struct Components {
@@ -55,6 +61,10 @@ impl Components {
             self.components.push(info);
             id
         })
+    }
+
+    pub(crate) fn get_info(&self, id: ComponentId) -> Option<&ComponentInfo> {
+        self.components.get(id.index())
     }
 
     #[inline]
