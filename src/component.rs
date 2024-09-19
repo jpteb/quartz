@@ -63,8 +63,12 @@ impl Components {
         })
     }
 
-    pub(crate) fn get_info(&self, id: ComponentId) -> Option<&ComponentInfo> {
+    pub(crate) fn get_info(&self, id: &ComponentId) -> Option<&ComponentInfo> {
         self.components.get(id.index())
+    }
+
+    pub fn get_id(&self, type_id: TypeId) -> Option<ComponentId> {
+        self.indices.get(&type_id).copied()
     }
 
     #[inline]

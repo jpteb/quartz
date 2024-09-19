@@ -5,28 +5,85 @@ use core::{
     ptr::NonNull,
 };
 
-use std::{alloc::handle_alloc_error, collections::HashMap, mem::{self, ManuallyDrop}};
+use std::{
+    alloc::handle_alloc_error,
+    collections::HashMap,
+    mem::{self, ManuallyDrop},
+};
 
-use crate::component::{ComponentId, ComponentInfo};
+use crate::{
+    component::{ComponentId, ComponentInfo, Components},
+    Entity,
+};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
+pub(crate) struct Tables {
+    tables: Vec<Table>,
+    table_index: HashMap<Box<[ComponentId]>, TableId>,
+}
+
+impl Tables {
+    pub(crate) fn get_id_or_insert(
+        &mut self,
+        ids: &[ComponentId],
+        components: &Components,
+    ) -> TableId {
+        let id = self.table_index.entry(ids.into()).or_insert_with(|| {
+            let id = TableId(self.tables.len());
+            self.tables.push(Table::from_components(ids, &components));
+            id
+        });
+
+        *id
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TableId(usize);
+
+impl TableId {
+    pub(crate) fn index(&self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct Table {
-    id: TableId,
     columns: HashMap<ComponentId, Column>,
+    entities: Vec<Entity>,
+}
+
+impl Table {
+    pub(crate) fn from_components(ids: &[ComponentId], components: &Components) -> Self {
+        let mut table = Self {
+            columns: HashMap::new(),
+            entities: Vec::new(),
+        };
+
+        ids.iter()
+            .map(|id| (id, components.get_info(id).unwrap()))
+            .for_each(|(id, info)| {
+                table.columns.insert(*id, Column::with_capacity(info, 0));
+            });
+
+        // for id in ids {
+        //     let component_info = components.get_info(id).unwrap();
+        //     table.columns.insert(*id, Column::with_capacity(component_info, 0));
+        // }
+
+        table
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct Column {
-    layout: Layout,
+    item_layout: Layout,
     data: NonNull<u8>,
     capacity: usize,
 }
 
 impl Column {
-    pub fn new_with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
+    pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
         let (array_layout, _off) = component_info
             .layout
             .repeat(capacity)
@@ -36,14 +93,38 @@ impl Column {
         let data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout));
 
         Self {
-            layout: component_info.layout,
+            item_layout: component_info.layout,
             data,
             capacity,
         }
     }
 
+    pub fn realloc(&mut self, new_capacity: usize) {
+        let (array_layout, _) = self
+            .item_layout
+            .repeat(self.capacity)
+            .expect("Array layout creation should succeed");
+
+        let (new_layout, _) = self
+            .item_layout
+            .repeat(new_capacity)
+            .expect("Array layout creation should succeed");
+
+        let data =
+            unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) };
+
+        self.data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(new_layout));
+        self.capacity = new_capacity;
+    }
+
+    pub fn initialize(&mut self, index: usize, value: OwningPtr) {
+        if index < self.capacity {
+            unsafe { self.initialize_unchecked(index, value) };
+        }
+    }
+
     pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
-        let size = self.layout.size();
+        let size = self.item_layout.size();
         let dst = self.data.byte_add(index * size);
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
     }
@@ -54,7 +135,7 @@ impl Drop for Column {
         unsafe {
             std::alloc::dealloc(
                 self.data.as_ptr(),
-                self.layout
+                self.item_layout
                     .repeat(self.capacity)
                     .expect("Array layout creation should be successful")
                     .0,
@@ -221,7 +302,7 @@ mod test {
         storage::OwningPtr,
     };
 
-    use super::Column;
+    use super::{Column, Tables};
 
     struct MyComponent {
         position: (f32, f32, f32),
@@ -232,10 +313,10 @@ mod test {
     fn create_column() {
         let mut components = Components::new();
         let component_id = components.register_component::<MyComponent>();
-        let component_info = components.get_info(component_id).unwrap();
+        let component_info = components.get_info(&component_id).unwrap();
 
-        let mut column = Column::new_with_capacity(component_info, 5);
-        assert_eq!(column.layout, component_info.layout);
+        let mut column = Column::with_capacity(component_info, 5);
+        assert_eq!(column.item_layout, component_info.layout);
 
         let mut c1 = MyComponent {
             position: (1.0, 2.0, 3.0),
@@ -260,5 +341,38 @@ mod test {
                 ptr = ptr.add(1);
             }
         }
+    }
+
+    #[test]
+    fn illegal_access() {
+        let mut components = Components::new();
+        let component_id = components.register_component::<u32>();
+        let component_info = components.get_info(&component_id).unwrap();
+
+        let my_comp: u32 = 5;
+
+        let mut column = Column::with_capacity(component_info, 1);
+        OwningPtr::make(my_comp, |ptr| unsafe { column.initialize(100, ptr) });
+    }
+
+    #[test]
+    fn tables() {
+        let mut tables = Tables::default();
+        let mut components = Components::new();
+
+        let comp_id1 = components.register_component::<MyComponent>();
+        let comp_id2 = components.register_component::<u32>();
+        let comp_id3 = components.register_component::<u8>();
+
+        let comp_mix1 = vec![comp_id1];
+        let comp_mix12 = vec![comp_id1, comp_id2];
+
+        let table_id1 = tables.get_id_or_insert(&comp_mix1, &components);
+        let table_id2 = tables.get_id_or_insert(&comp_mix1, &components);
+        assert_eq!(table_id1, table_id2);
+        let table_id3 = tables.get_id_or_insert(&comp_mix12, &components);
+        assert_ne!(table_id1, table_id3);
+        assert_eq!(tables.tables.len(), 2);
+        assert_eq!(tables.table_index.len(), 2);
     }
 }
