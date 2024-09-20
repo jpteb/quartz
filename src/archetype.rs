@@ -27,7 +27,7 @@ pub struct Archetype {
 }
 
 impl Archetype {
-    pub fn new(id: ArchetypeId, table: TableId, components: Components) -> Self {
+    fn new(id: ArchetypeId, table: TableId, components: Components) -> Self {
         let mut comps = HashMap::new();
 
         for component_id in components.components() {
@@ -55,7 +55,7 @@ impl Archetype {
         };
     }
 
-    pub fn contains(&self, id: ComponentId) -> bool {
+    fn contains(&self, id: ComponentId) -> bool {
         self.components.contains_key(&id)
     }
 }

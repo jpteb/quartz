@@ -94,7 +94,7 @@ mod tests {
     impl Component for MyComponent {}
 
     #[test]
-    fn test_registration() {
+    fn component_registration() {
         let mut components = Components::new();
 
         let id = components.register_component::<u32>();

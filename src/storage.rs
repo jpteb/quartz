@@ -28,13 +28,11 @@ impl Tables {
         ids: &[ComponentId],
         components: &Components,
     ) -> TableId {
-        let id = self.table_index.entry(ids.into()).or_insert_with(|| {
+        *self.table_index.entry(ids.into()).or_insert_with(|| {
             let id = TableId(self.tables.len());
             self.tables.push(Table::from_components(ids, &components));
             id
-        });
-
-        *id
+        })
     }
 }
 
@@ -66,11 +64,6 @@ impl Table {
                 table.columns.insert(*id, Column::with_capacity(info, 0));
             });
 
-        // for id in ids {
-        //     let component_info = components.get_info(id).unwrap();
-        //     table.columns.insert(*id, Column::with_capacity(component_info, 0));
-        // }
-
         table
     }
 }
@@ -84,16 +77,21 @@ pub(crate) struct Column {
 
 impl Column {
     pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
-        let (array_layout, _off) = component_info
-            .layout
+        let item_layout = component_info.layout;
+        let (array_layout, _off) = item_layout
             .repeat(capacity)
             .expect("Array layout creation should be successful!");
 
-        let data = unsafe { std::alloc::alloc(array_layout) };
-        let data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout));
+        let data = if capacity == 0 {
+            // create an aligned dangling pointer
+            unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
+        } else {
+            let data = unsafe { std::alloc::alloc(array_layout) };
+            NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout))
+        };
 
         Self {
-            item_layout: component_info.layout,
+            item_layout,
             data,
             capacity,
         }
@@ -117,6 +115,16 @@ impl Column {
         self.capacity = new_capacity;
     }
 
+    #[inline]
+    fn get_ptr(&self) -> Ptr<'_> {
+        unsafe { Ptr::new(self.data) }
+    }
+
+    #[inline]
+    fn get_ptr_mut(&mut self) -> MutPtr<'_> {
+        unsafe { MutPtr::new(self.data) }
+    }
+
     pub fn initialize(&mut self, index: usize, value: OwningPtr) {
         if index < self.capacity {
             unsafe { self.initialize_unchecked(index, value) };
@@ -128,18 +136,24 @@ impl Column {
         let dst = self.data.byte_add(index * size);
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
     }
+
+    pub unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
+        self.get_ptr().byte_add(self.item_layout.size() * index)
+    }
 }
 
 impl Drop for Column {
     fn drop(&mut self) {
         unsafe {
-            std::alloc::dealloc(
-                self.data.as_ptr(),
-                self.item_layout
-                    .repeat(self.capacity)
-                    .expect("Array layout creation should be successful")
-                    .0,
-            )
+            if self.capacity != 0 {
+                std::alloc::dealloc(
+                    self.data.as_ptr(),
+                    self.item_layout
+                        .repeat(self.capacity)
+                        .expect("Array layout creation should be successful")
+                        .0,
+                )
+            }
         };
     }
 }
@@ -374,5 +388,24 @@ mod test {
         assert_ne!(table_id1, table_id3);
         assert_eq!(tables.tables.len(), 2);
         assert_eq!(tables.table_index.len(), 2);
+    }
+
+    #[test]
+    fn get_component() {
+        let mut components = Components::new();
+        let component_id = components.register_component::<u32>();
+        let component_info = components.get_info(&component_id).unwrap();
+
+        let my_comp: u32 = 5;
+
+        let mut column = Column::with_capacity(component_info, 1);
+        OwningPtr::make(my_comp, |ptr| unsafe {
+            column.initialize_unchecked(0, ptr)
+        });
+
+        unsafe {
+            let ptr = column.get_unchecked(0);
+            assert_eq!(ptr.deref::<u32>(), &5);
+        }
     }
 }
