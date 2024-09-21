@@ -30,7 +30,7 @@ impl Tables {
     ) -> TableId {
         *self.table_index.entry(ids.into()).or_insert_with(|| {
             let id = TableId(self.tables.len());
-            self.tables.push(Table::from_components(ids, &components));
+            self.tables.push(Table::from_components(ids, components));
             id
         })
     }
@@ -41,6 +41,21 @@ pub(crate) struct TableId(usize);
 
 impl TableId {
     pub(crate) fn index(&self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct TableRow(usize);
+
+impl TableRow {
+    #[inline]
+    const fn from(index: usize) -> Self {
+        Self(index)
+    }
+
+    #[inline]
+    const fn index(&self) -> usize {
         self.0
     }
 }
@@ -66,12 +81,35 @@ impl Table {
 
         table
     }
+
+    fn get_column(&self, id: ComponentId) -> Option<&Column> {
+        self.columns.get(&id)
+    }
+
+    unsafe fn get_component(&self, id: ComponentId, row: TableRow) -> Option<Ptr<'_>> {
+        self.get_column(id)
+            .map(|col| col.get_unchecked(row.index()))
+    }
+}
+
+impl Drop for Table {
+    fn drop(&mut self) {
+        let len = self.entities.len();
+        self.entities.clear();
+
+        for col in self.columns.values_mut() {
+            unsafe {
+                col.drop(len);
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct Column {
     item_layout: Layout,
     data: NonNull<u8>,
+    drop: Option<unsafe fn(OwningPtr<'_>)>,
     capacity: usize,
 }
 
@@ -93,8 +131,13 @@ impl Column {
         Self {
             item_layout,
             data,
+            drop: component_info.drop,
             capacity,
         }
+    }
+
+    fn is_zst(&self) -> bool {
+        self.item_layout.size() == 0
     }
 
     pub fn realloc(&mut self, new_capacity: usize) {
@@ -140,19 +183,35 @@ impl Column {
     pub unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
         self.get_ptr().byte_add(self.item_layout.size() * index)
     }
-}
 
-impl Drop for Column {
-    fn drop(&mut self) {
+    unsafe fn clear(&mut self, len: usize) {
+        if let Some(drop) = self.drop {
+            self.drop = None;
+            let size = self.item_layout.size();
+
+            for i in 0..len {
+                let item = self.get_ptr_mut().byte_add(i * size).promote();
+
+                drop(item);
+            }
+
+            self.drop = Some(drop);
+        }
+    }
+
+    fn drop(&mut self, len: usize) {
         unsafe {
             if self.capacity != 0 {
-                std::alloc::dealloc(
-                    self.data.as_ptr(),
-                    self.item_layout
-                        .repeat(self.capacity)
-                        .expect("Array layout creation should be successful")
-                        .0,
-                )
+                self.clear(len);
+                if !self.is_zst() {
+                    std::alloc::dealloc(
+                        self.data.as_ptr(),
+                        self.item_layout
+                            .repeat(self.capacity)
+                            .expect("Array layout creation should be successful")
+                            .0,
+                    )
+                }
             }
         };
     }
@@ -355,6 +414,8 @@ mod test {
                 ptr = ptr.add(1);
             }
         }
+
+        column.drop(2);
     }
 
     #[test]
@@ -367,6 +428,8 @@ mod test {
 
         let mut column = Column::with_capacity(component_info, 1);
         OwningPtr::make(my_comp, |ptr| unsafe { column.initialize(100, ptr) });
+
+        column.drop(1);
     }
 
     #[test]
@@ -407,5 +470,7 @@ mod test {
             let ptr = column.get_unchecked(0);
             assert_eq!(ptr.deref::<u32>(), &5);
         }
+
+        column.drop(1);
     }
 }

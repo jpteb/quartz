@@ -31,7 +31,7 @@ impl World {
         let archetype_id = self.entity_index.get(&entity).unwrap();
         self.component_index
             .get(&component)
-            .is_some_and(|a| a.contains(&archetype_id))
+            .is_some_and(|a| a.contains(archetype_id))
     }
 
     fn get_archetypes_by_comp(&self, component: ComponentId) -> Vec<ArchetypeId> {

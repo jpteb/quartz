@@ -3,7 +3,10 @@ use std::{
     any::{type_name, TypeId},
     borrow::Cow,
     collections::HashMap,
+    mem::needs_drop,
 };
+
+use crate::storage::OwningPtr;
 
 pub trait Component: Send + Sync + 'static {}
 
@@ -26,13 +29,24 @@ pub(crate) struct ComponentInfo {
     name: Cow<'static, str>,
     type_id: TypeId,
     pub(crate) layout: Layout,
+    pub(crate) drop: Option<for<'a> unsafe fn(OwningPtr<'a>)>,
 }
 
-// impl ComponentInfo {
-//     pub(crate) fn new<T: Component>() -> Self {
-//         
-//     }
-// }
+impl ComponentInfo {
+    pub(crate) fn new<T: Component>(id: ComponentId) -> Self {
+        Self {
+            id,
+            name: Cow::Borrowed(std::any::type_name::<T>()),
+            type_id: TypeId::of::<T>(),
+            layout: Layout::new::<T>(),
+            drop: needs_drop::<T>().then_some(Self::drop_ptr::<T> as _),
+        }
+    }
+
+    unsafe fn drop_ptr<T>(x: OwningPtr<'_>) {
+        x.drop_as::<T>()
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct Components {
@@ -52,12 +66,7 @@ impl Components {
         let type_id = TypeId::of::<T>();
         *self.indices.entry(type_id).or_insert_with(|| {
             let id = ComponentId::new(self.components.len());
-            let info = ComponentInfo {
-                id,
-                name: Cow::Borrowed(type_name::<T>()),
-                type_id,
-                layout: Layout::new::<T>(),
-            };
+            let info = ComponentInfo::new::<T>(id);
             self.components.push(info);
             id
         })
@@ -85,7 +94,7 @@ impl Components {
 mod tests {
     use std::any::type_name;
 
-    use super::{Component, Components, ComponentId};
+    use super::{Component, ComponentId, Components};
 
     impl Component for u8 {}
     impl Component for u32 {}
@@ -125,9 +134,6 @@ mod tests {
 
         let id = components.register_component::<u8>();
         assert_eq!(id, ComponentId::new(2));
-        assert_eq!(
-            Some(ComponentId::new(2)),
-            components.component_id::<u8>()
-        );
+        assert_eq!(Some(ComponentId::new(2)), components.component_id::<u8>());
     }
 }
