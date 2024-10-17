@@ -168,11 +168,11 @@ impl Column {
         unsafe { MutPtr::new(self.data) }
     }
 
-    pub fn initialize(&mut self, index: usize, value: OwningPtr) {
-        if index < self.capacity {
-            unsafe { self.initialize_unchecked(index, value) };
-        }
-    }
+    // pub fn initialize(&mut self, index: usize, value: OwningPtr) {
+    //     if index < self.capacity {
+    //         unsafe { self.initialize_unchecked(index, value) };
+    //     }
+    // }
 
     pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
         let size = self.item_layout.size();
@@ -416,20 +416,6 @@ mod test {
         }
 
         column.drop(2);
-    }
-
-    #[test]
-    fn illegal_access() {
-        let mut components = Components::new();
-        let component_id = components.register_component::<u32>();
-        let component_info = components.get_info(&component_id).unwrap();
-
-        let my_comp: u32 = 5;
-
-        let mut column = Column::with_capacity(component_info, 1);
-        OwningPtr::make(my_comp, |ptr| unsafe { column.initialize(100, ptr) });
-
-        column.drop(1);
     }
 
     #[test]

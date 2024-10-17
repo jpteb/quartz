@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    component::{Component, ComponentId, Components}, storage::{Table, TableId}, Entity
+    component::{Component, ComponentId, Components},
+    storage::{Table, TableId},
+    Entity,
 };
 
 #[derive(Debug, Clone, Copy)]

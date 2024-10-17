@@ -42,45 +42,6 @@ impl World {
         result.sort();
         result
     }
-
-    // fn spawn(&mut self, components: Type) -> Entity {
-    //     let entity = Entity {
-    //         index: self.entities.len() as u32,
-    //         generation: 0,
-    //     };
-    //
-    //     if let Some(archetype_id) = self.archetype_index.get(&components) {
-    //         let mut archetype = &mut self.archetypes[archetype_id.0];
-    //         self.entity_index.insert(entity, *archetype_id);
-    //     } else {
-    //         let archetype = Archetype {
-    //             id: self.archetype_count,
-    //             ty: components.clone(),
-    //         };
-    //
-    //         self.archetype_index
-    //             .insert(components.clone(), archetype.id);
-    //
-    //         self.archetype_count.0 += 1;
-    //
-    //         for comp in components {
-    //             self.component_index
-    //                 .entry(comp)
-    //                 .and_modify(|index| {
-    //                     index.insert(archetype.id);
-    //                 })
-    //                 .or_insert_with(|| HashSet::from([archetype.id]));
-    //         }
-    //
-    //         self.entity_index.insert(entity, archetype.id);
-    //         self.archetypes.push(archetype);
-    //     }
-    //
-    //     self.entity_count += 1;
-    //     self.entities.push(entity);
-    //
-    //     entity
-    // }
 }
 
 #[cfg(test)]
