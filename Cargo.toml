@@ -5,4 +5,3 @@ edition = "2021"
 authors = ["Jan Philipp Tebernum <jan.tebernum@pm.me>"]
 
 [dependencies]
-any_vec = "0.14.0"
