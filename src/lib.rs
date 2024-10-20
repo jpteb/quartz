@@ -5,16 +5,12 @@ use std::collections::{HashMap, HashSet};
 
 mod archetype;
 mod component;
+mod entity;
 mod storage;
 
 use archetype::{Archetype, ArchetypeComponents, ArchetypeId, ArchetypeRecord};
 use component::{ComponentId, Components};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Entity {
-    index: u32,
-    generation: u32,
-}
+use entity::Entity;
 
 #[derive(Debug, Default)]
 pub struct World {

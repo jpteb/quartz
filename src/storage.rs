@@ -13,7 +13,7 @@ use std::{
 
 use crate::{
     component::{ComponentId, ComponentInfo, Components},
-    Entity,
+    entity::Entity,
 };
 
 #[derive(Debug, Default)]
@@ -34,6 +34,10 @@ impl Tables {
             id
         })
     }
+
+    fn get(&self, id: TableId) -> Option<&Table> {
+        self.tables.get(id.index())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +49,7 @@ impl TableId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct TableRow(usize);
 
 impl TableRow {
@@ -86,6 +90,10 @@ impl Table {
         self.columns.get(&id)
     }
 
+    fn get_column_mut(&mut self, id: ComponentId) -> Option<&mut Column> {
+        self.columns.get_mut(&id)
+    }
+
     unsafe fn get_component(&self, id: ComponentId, row: TableRow) -> Option<Ptr<'_>> {
         self.get_column(id)
             .map(|col| col.get_unchecked(row.index()))
@@ -96,12 +104,6 @@ impl Drop for Table {
     fn drop(&mut self) {
         let len = self.entities.len();
         self.entities.clear();
-
-        for col in self.columns.values_mut() {
-            unsafe {
-                col.drop(len);
-            }
-        }
     }
 }
 
@@ -110,20 +112,22 @@ pub(crate) struct Column {
     item_layout: Layout,
     data: NonNull<u8>,
     drop: Option<unsafe fn(OwningPtr<'_>)>,
+    len: usize,
     capacity: usize,
 }
 
 impl Column {
     pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
         let item_layout = component_info.layout;
-        let (array_layout, _off) = item_layout
-            .repeat(capacity)
-            .expect("Array layout creation should be successful!");
 
         let data = if capacity == 0 {
             // create an aligned dangling pointer
             unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
         } else {
+            let (array_layout, _off) = item_layout
+                .repeat(capacity)
+                .expect("Array layout creation should be successful!");
+
             let data = unsafe { std::alloc::alloc(array_layout) };
             NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout))
         };
@@ -132,12 +136,21 @@ impl Column {
             item_layout,
             data,
             drop: component_info.drop,
+            len: 0,
             capacity,
         }
     }
 
     fn is_zst(&self) -> bool {
         self.item_layout.size() == 0
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity
     }
 
     pub fn realloc(&mut self, new_capacity: usize) {
@@ -168,12 +181,6 @@ impl Column {
         unsafe { MutPtr::new(self.data) }
     }
 
-    // pub fn initialize(&mut self, index: usize, value: OwningPtr) {
-    //     if index < self.capacity {
-    //         unsafe { self.initialize_unchecked(index, value) };
-    //     }
-    // }
-
     pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
         let size = self.item_layout.size();
         let dst = self.data.byte_add(index * size);
@@ -184,10 +191,11 @@ impl Column {
         self.get_ptr().byte_add(self.item_layout.size() * index)
     }
 
-    unsafe fn clear(&mut self, len: usize) {
+    unsafe fn clear(&mut self) {
         if let Some(drop) = self.drop {
             self.drop = None;
             let size = self.item_layout.size();
+            let len = self.len;
 
             for i in 0..len {
                 let item = self.get_ptr_mut().byte_add(i * size).promote();
@@ -198,11 +206,13 @@ impl Column {
             self.drop = Some(drop);
         }
     }
+}
 
-    fn drop(&mut self, len: usize) {
+impl Drop for Column {
+    fn drop(&mut self) {
         unsafe {
             if self.capacity != 0 {
-                self.clear(len);
+                self.clear();
                 if !self.is_zst() {
                     std::alloc::dealloc(
                         self.data.as_ptr(),
@@ -375,7 +385,7 @@ mod test {
         storage::OwningPtr,
     };
 
-    use super::{Column, Tables};
+    use super::{Column, Table, Tables};
 
     struct MyComponent {
         position: (f32, f32, f32),
@@ -414,8 +424,6 @@ mod test {
                 ptr = ptr.add(1);
             }
         }
-
-        column.drop(2);
     }
 
     #[test]
@@ -440,7 +448,7 @@ mod test {
     }
 
     #[test]
-    fn get_component() {
+    fn column_get_component() {
         let mut components = Components::new();
         let component_id = components.register_component::<u32>();
         let component_info = components.get_info(&component_id).unwrap();
@@ -456,7 +464,13 @@ mod test {
             let ptr = column.get_unchecked(0);
             assert_eq!(ptr.deref::<u32>(), &5);
         }
+    }
 
-        column.drop(1);
+    #[test]
+    fn table_get_component() {
+        let mut components = Components::new();
+        let component_id = components.register_component::<u32>();
+
+        let mut table = Table::from_components(&[component_id], &components);
     }
 }

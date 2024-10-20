@@ -50,13 +50,6 @@ impl Archetype {
         }
     }
 
-    fn insert<T: Component>(&mut self, entity: Entity, components: Vec<T>) {
-        let record = EntityRecord {
-            entity,
-            row: self.entities.len(),
-        };
-    }
-
     fn contains(&self, id: ComponentId) -> bool {
         self.components.contains_key(&id)
     }
@@ -64,6 +57,6 @@ impl Archetype {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct ArchetypeRecord {
-    pub(crate) id: ArchetypeId,
+    id: ArchetypeId,
     column: usize,
 }
