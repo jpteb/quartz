@@ -1,5 +1,4 @@
 #![feature(alloc_layout_extra)]
-#![feature(strict_provenance)]
 #![allow(unused)]
 use std::collections::{HashMap, HashSet};
 
