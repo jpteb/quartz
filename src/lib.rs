@@ -2,10 +2,10 @@
 #![allow(unused)]
 use std::collections::{HashMap, HashSet};
 
-mod archetype;
-mod component;
-mod entity;
-mod storage;
+pub mod archetype;
+pub mod component;
+pub mod entity;
+pub mod storage;
 
 use archetype::{Archetype, ArchetypeComponents, ArchetypeId, ArchetypeRecord};
 use component::{ComponentId, Components};

@@ -41,7 +41,7 @@ impl Tables {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TableId(usize);
+pub(crate) struct TableId(pub(crate) usize);
 
 impl TableId {
     pub(crate) fn index(&self) -> usize {
@@ -50,7 +50,7 @@ impl TableId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct TableRow(usize);
+pub(crate) struct TableRow(pub(crate) usize);
 
 impl TableRow {
     #[inline]
@@ -65,7 +65,7 @@ impl TableRow {
 }
 
 #[derive(Debug)]
-pub(crate) struct Table {
+pub struct Table {
     columns: HashMap<ComponentId, Column>,
     entities: Vec<Entity>,
 }
