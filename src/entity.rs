@@ -215,6 +215,7 @@ mod tests {
         assert_ne!(entity1.generation, entity2.generation);
 
         entities.free(entity1);
+
         assert_eq!(entities.len, 1);
         assert_eq!(
             entities.get(entity2),
@@ -224,5 +225,8 @@ mod tests {
                 table_row: TableRow(1)
             })
         );
+
+        entities.free(entity2);
+        assert_eq!(entities.len, 0);
     }
 }
