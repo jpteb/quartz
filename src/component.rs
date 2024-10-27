@@ -1,17 +1,11 @@
-use std::{
-    alloc::Layout,
-    any::{type_name, TypeId},
-    borrow::Cow,
-    collections::HashMap,
-    mem::needs_drop,
-};
+use std::{alloc::Layout, any::TypeId, borrow::Cow, collections::HashMap, mem::needs_drop};
 
-use crate::storage::OwningPtr;
+use crate::ptr::OwningPtr;
 
 pub trait Component: Send + Sync + 'static {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ComponentId(usize);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ComponentId(usize);
 
 impl ComponentId {
     pub(crate) fn new(id: usize) -> Self {
@@ -49,7 +43,7 @@ impl ComponentInfo {
 }
 
 #[derive(Debug)]
-pub(crate) struct Components {
+pub struct Components {
     components: Vec<ComponentInfo>,
     indices: HashMap<TypeId, ComponentId>,
 }
@@ -80,13 +74,27 @@ impl Components {
         self.indices.get(&type_id).copied()
     }
 
-    #[inline]
     pub fn component_id<T: Component>(&self) -> Option<ComponentId> {
         self.indices.get(&TypeId::of::<T>()).copied()
     }
 
     pub fn components(&self) -> impl Iterator<Item = ComponentId> + use<'_> {
         self.components.iter().map(|info| info.id)
+    }
+}
+
+pub trait Bundle {
+    fn get_components(self, func: &mut impl FnMut(OwningPtr<'_>));
+    fn component_ids(self, components: &mut Components, func: &mut impl FnMut(ComponentId));
+}
+
+impl<C: Component> Bundle for C {
+    fn get_components(self, func: &mut impl FnMut(OwningPtr<'_>)) {
+        OwningPtr::make(self, |ptr| func(ptr));
+    }
+
+    fn component_ids(self, components: &mut Components, func: &mut impl FnMut(ComponentId)) {
+        func(components.register_component::<C>());
     }
 }
 

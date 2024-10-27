@@ -5,37 +5,57 @@ use std::collections::{HashMap, HashSet};
 pub mod archetype;
 pub mod component;
 pub mod entity;
+pub mod ptr;
 pub mod storage;
 
-use archetype::{Archetype, ArchetypeComponents, ArchetypeId, ArchetypeRecord};
-use component::{ComponentId, Components};
-use entity::Entity;
+use archetype::{ArchetypeComponents, ArchetypeId, Archetypes};
+use component::{Bundle, ComponentId, Components};
+use entity::{Entities, Entity};
+use storage::{TableId, TableRow, Tables};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct World {
-    entities: Vec<Entity>,
-    archetypes: Vec<Archetype>,
-    entity_index: HashMap<Entity, ArchetypeId>,
-    archetype_index: HashMap<ArchetypeComponents, ArchetypeId>,
-    component_index: HashMap<ComponentId, HashSet<ArchetypeId>>,
-    archetype_count: ArchetypeId,
+    entities: Entities,
+    archetypes: Archetypes,
+    components: Components,
+    tables: Tables,
 }
 
 impl World {
-    fn has_component(&self, entity: Entity, component: ComponentId) -> bool {
-        let archetype_id = self.entity_index.get(&entity).unwrap();
-        self.component_index
-            .get(&component)
-            .is_some_and(|a| a.contains(archetype_id))
+    pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
+        self.entities
+            .alloc(|entity| {
+                let mut component_ids = Vec::new();
+                bundle.component_ids(&mut self.components, &mut |id| {
+                    component_ids.push(id);
+                });
+                component_ids.sort_unstable();
+
+                let table_id = self
+                    .tables
+                    .get_id_or_insert(&component_ids, &self.components);
+
+                let mut table = self.tables.get(table_id);
+
+                Ok(entity::EntityLocation {
+                    archetype_id: ArchetypeId(0),
+                    table_id,
+                    table_row: TableRow(0),
+                })
+            })
+            .unwrap()
     }
 
-    fn get_archetypes_by_comp(&self, component: ComponentId) -> Vec<ArchetypeId> {
-        let mut result = self
-            .component_index
-            .get(&component)
-            .map_or(vec![], |s| s.iter().copied().collect::<Vec<_>>());
-        result.sort();
-        result
+    fn has_component(&self, entity: Entity, component: ComponentId) -> Option<bool> {
+        let archetype_id = {
+            if let Some(loc) = self.entities.get(entity) {
+                loc.archetype_id
+            } else {
+                return None;
+            }
+        };
+
+        self.archetypes.has_component(archetype_id, component)
     }
 }
 

@@ -14,6 +14,7 @@ use std::{
 use crate::{
     component::{ComponentId, ComponentInfo, Components},
     entity::Entity,
+    ptr::{MutPtr, OwningPtr, Ptr},
 };
 
 #[derive(Debug, Default)]
@@ -35,13 +36,13 @@ impl Tables {
         })
     }
 
-    fn get(&self, id: TableId) -> Option<&Table> {
+    pub(crate) fn get(&self, id: TableId) -> Option<&Table> {
         self.tables.get(id.index())
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TableId(pub(crate) usize);
+pub struct TableId(pub(crate) usize);
 
 impl TableId {
     pub(crate) fn index(&self) -> usize {
@@ -50,7 +51,7 @@ impl TableId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct TableRow(pub(crate) usize);
+pub struct TableRow(pub(crate) usize);
 
 impl TableRow {
     #[inline]
@@ -120,7 +121,7 @@ impl Column {
     pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
         let item_layout = component_info.layout;
 
-        let data = if capacity == 0 {
+        let data = if capacity == 0 || item_layout.size() == 0 {
             // create an aligned dangling pointer
             unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
         } else {
@@ -153,21 +154,30 @@ impl Column {
         self.capacity
     }
 
+    pub fn reserve(&mut self, additional: usize) {
+        if self.capacity - self.len < additional {
+            // We realloc more space than we need, but we take it
+            self.realloc(additional);
+        }
+    }
+
     pub fn realloc(&mut self, new_capacity: usize) {
-        let (array_layout, _) = self
-            .item_layout
-            .repeat(self.capacity)
-            .expect("Array layout creation should succeed");
+        if !self.is_zst() {
+            let (array_layout, _) = self
+                .item_layout
+                .repeat(self.capacity)
+                .expect("Array layout creation should succeed");
 
-        let (new_layout, _) = self
-            .item_layout
-            .repeat(new_capacity)
-            .expect("Array layout creation should succeed");
+            let (new_layout, _) = self
+                .item_layout
+                .repeat(new_capacity)
+                .expect("Array layout creation should succeed");
 
-        let data =
-            unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) };
+            let data =
+                unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) };
 
-        self.data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(new_layout));
+            self.data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(new_layout));
+        }
         self.capacity = new_capacity;
     }
 
@@ -181,9 +191,10 @@ impl Column {
         unsafe { MutPtr::new(self.data) }
     }
 
-    pub unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
+    pub(crate) unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
         let size = self.item_layout.size();
         let dst = self.data.byte_add(index * size);
+        //TODO: is this always nonoverlapping?
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
     }
 
@@ -227,162 +238,11 @@ impl Drop for Column {
     }
 }
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub(crate) struct Ptr<'a>(NonNull<u8>, PhantomData<&'a u8>);
-#[derive(Debug)]
-#[repr(transparent)]
-pub(crate) struct MutPtr<'a>(NonNull<u8>, PhantomData<&'a mut u8>);
-#[derive(Debug)]
-#[repr(transparent)]
-pub(crate) struct OwningPtr<'a>(NonNull<u8>, PhantomData<&'a mut u8>);
-
-macro_rules! impl_ptr {
-    ($ptr:ident) => {
-        impl<'a> From<$ptr<'a>> for NonNull<u8> {
-            fn from(ptr: $ptr<'a>) -> Self {
-                ptr.0
-            }
-        }
-
-        impl $ptr<'_> {
-            #[inline]
-            pub unsafe fn byte_offset(self, count: isize) -> Self {
-                Self(
-                    unsafe { NonNull::new_unchecked(self.as_ptr().offset(count)) },
-                    PhantomData,
-                )
-            }
-
-            #[inline]
-            pub unsafe fn byte_add(self, count: usize) -> Self {
-                Self(
-                    unsafe { NonNull::new_unchecked(self.as_ptr().add(count)) },
-                    PhantomData,
-                )
-            }
-        }
-
-        impl Pointer for $ptr<'_> {
-            #[inline]
-            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-                Pointer::fmt(&self.0, f)
-            }
-        }
-    };
-}
-
-impl_ptr!(Ptr);
-impl_ptr!(MutPtr);
-impl_ptr!(OwningPtr);
-
-impl<'a> Ptr<'a> {
-    #[inline]
-    pub unsafe fn new(inner: NonNull<u8>) -> Self {
-        Self(inner, PhantomData)
-    }
-
-    #[inline]
-    pub unsafe fn deref<T>(self) -> &'a T {
-        let ptr = self.as_ptr().cast::<T>();
-        unsafe { &*ptr }
-    }
-
-    #[inline]
-    pub fn as_ptr(self) -> *mut u8 {
-        self.0.as_ptr()
-    }
-}
-
-impl<'a, T: ?Sized> From<&'a T> for Ptr<'a> {
-    #[inline]
-    fn from(value: &'a T) -> Self {
-        unsafe { Self::new(NonNull::from(value).cast()) }
-    }
-}
-
-impl<'a> MutPtr<'a> {
-    #[inline]
-    pub unsafe fn new(inner: NonNull<u8>) -> Self {
-        Self(inner, PhantomData)
-    }
-
-    #[inline]
-    pub unsafe fn promote(self) -> OwningPtr<'a> {
-        OwningPtr(self.0, PhantomData)
-    }
-
-    #[inline]
-    pub unsafe fn deref_mut<T>(self) -> &'a mut T {
-        let ptr = self.as_ptr().cast::<T>();
-        unsafe { &mut *ptr }
-    }
-
-    #[inline]
-    pub fn as_ptr(self) -> *mut u8 {
-        self.0.as_ptr()
-    }
-
-    #[inline]
-    pub fn as_ref(&self) -> Ptr<'_> {
-        unsafe { Ptr::new(self.0) }
-    }
-}
-
-impl<'a, T: ?Sized> From<&'a mut T> for MutPtr<'a> {
-    #[inline]
-    fn from(value: &'a mut T) -> Self {
-        unsafe { Self::new(NonNull::from(value).cast()) }
-    }
-}
-
-impl<'a> OwningPtr<'a> {
-    #[inline]
-    pub unsafe fn new(inner: NonNull<u8>) -> Self {
-        Self(inner, PhantomData)
-    }
-
-    #[inline]
-    pub unsafe fn read<T>(self) -> T {
-        let ptr = self.as_ptr().cast::<T>();
-        unsafe { ptr.read() }
-    }
-
-    #[inline]
-    pub unsafe fn drop_as<T>(self) {
-        let ptr = self.as_ptr().cast::<T>();
-
-        unsafe { ptr.drop_in_place() }
-    }
-
-    #[inline]
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.0.as_ptr()
-    }
-
-    #[inline]
-    pub fn as_ref(&self) -> Ptr<'_> {
-        unsafe { Ptr::new(self.0) }
-    }
-
-    #[inline]
-    pub fn as_mut(&mut self) -> MutPtr<'_> {
-        unsafe { MutPtr::new(self.0) }
-    }
-
-    #[inline]
-    pub fn make<T, F: FnOnce(OwningPtr<'_>) -> R, R>(value: T, f: F) -> R {
-        let mut temp = ManuallyDrop::new(value);
-
-        f(unsafe { MutPtr::from(&mut *temp).promote() })
-    }
-}
-
 #[cfg(test)]
 mod test {
     use crate::{
         component::{Component, ComponentInfo, Components},
-        storage::OwningPtr,
+        ptr::OwningPtr,
     };
 
     use super::{Column, Table, Tables};

@@ -19,9 +19,9 @@ impl Entity {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EntityLocation {
-    archetype_id: ArchetypeId,
-    table_id: TableId,
-    table_row: TableRow,
+    pub archetype_id: ArchetypeId,
+    pub table_id: TableId,
+    pub table_row: TableRow,
 }
 
 #[derive(Debug)]
@@ -37,7 +37,7 @@ struct EntityEntry {
 }
 
 /// The struct handling all [`Entity`]s used in the ECS
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Entities {
     entities: Vec<EntityEntry>,
     free_head: usize,
