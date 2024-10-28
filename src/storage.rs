@@ -39,6 +39,10 @@ impl Tables {
     pub(crate) fn get(&self, id: TableId) -> Option<&Table> {
         self.tables.get(id.index())
     }
+
+    pub(crate) fn get_mut(&mut self, id: TableId) -> Option<&mut Table> {
+        self.tables.get_mut(id.index())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,11 +91,40 @@ impl Table {
         table
     }
 
+    fn capacity(&self) -> usize {
+        self.entities.capacity()
+    }
+
+    fn len(&self) -> usize {
+        self.entities.len()
+    }
+
+    pub(crate) fn allocate(&mut self, entity: Entity) -> TableRow {
+        self.reserve(1);
+        let table_row = TableRow(self.len());
+        self.entities.push(entity);
+
+        table_row
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        if self.capacity() - self.len() < additional {
+            self.entities.reserve(additional);
+            self.realloc_columns(additional);
+        }
+    }
+
+    fn realloc_columns(&mut self, new_capacity: usize) {
+        for col in self.columns.values_mut() {
+            col.realloc(new_capacity);
+        }
+    }
+
     fn get_column(&self, id: ComponentId) -> Option<&Column> {
         self.columns.get(&id)
     }
 
-    fn get_column_mut(&mut self, id: ComponentId) -> Option<&mut Column> {
+    pub(crate) fn get_column_mut(&mut self, id: ComponentId) -> Option<&mut Column> {
         self.columns.get_mut(&id)
     }
 
@@ -152,13 +185,6 @@ impl Column {
 
     fn capacity(&self) -> usize {
         self.capacity
-    }
-
-    pub fn reserve(&mut self, additional: usize) {
-        if self.capacity - self.len < additional {
-            // We realloc more space than we need, but we take it
-            self.realloc(additional);
-        }
     }
 
     pub fn realloc(&mut self, new_capacity: usize) {

@@ -12,7 +12,7 @@ pub struct Entity {
 }
 
 impl Entity {
-    fn from(index: u32, generation: Generation) -> Self {
+    pub(crate) fn from(index: u32, generation: Generation) -> Self {
         Self { index, generation }
     }
 }

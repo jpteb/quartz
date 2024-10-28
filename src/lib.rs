@@ -22,11 +22,20 @@ pub struct World {
 }
 
 impl World {
+    pub fn new() -> Self {
+        Self {
+            entities: Entities::default(),
+            archetypes: Archetypes::default(),
+            components: Components::new(),
+            tables: Tables::default(),
+        }
+    }
+
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
         self.entities
             .alloc(|entity| {
                 let mut component_ids = Vec::new();
-                bundle.component_ids(&mut self.components, &mut |id| {
+                B::component_ids(&mut self.components, &mut |id| {
                     component_ids.push(id);
                 });
                 component_ids.sort_unstable();
@@ -35,12 +44,23 @@ impl World {
                     .tables
                     .get_id_or_insert(&component_ids, &self.components);
 
-                let mut table = self.tables.get(table_id);
+                let table_row = if let Some(table) = self.tables.get_mut(table_id) {
+                    let row = table.allocate(entity);
+                    bundle.get(&mut self.components, &mut |id, ptr| unsafe {
+                        table
+                            .get_column_mut(id)
+                            .unwrap()
+                            .initialize_unchecked(row.0, ptr);
+                    });
+                    row
+                } else {
+                    return Err(());
+                };
 
                 Ok(entity::EntityLocation {
                     archetype_id: ArchetypeId(0),
                     table_id,
-                    table_row: TableRow(0),
+                    table_row,
                 })
             })
             .unwrap()
@@ -61,7 +81,20 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    use component::Component;
+
     use super::*;
+
+    struct MyComponent(usize);
+    impl Component for MyComponent {}
+
+    #[test]
+    fn spawn() {
+        let mut world = World::new();
+        let entity = world.spawn(MyComponent(1));
+
+        assert_eq!(entity, Entity::from(0, 0));
+    }
 
     // #[test]
     // fn test_has_component() {
