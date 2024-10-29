@@ -43,6 +43,10 @@ impl Tables {
     pub(crate) fn get_mut(&mut self, id: TableId) -> Option<&mut Table> {
         self.tables.get_mut(id.index())
     }
+
+    pub fn len(&self) -> usize {
+        self.tables.len()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +114,7 @@ impl Table {
     fn reserve(&mut self, additional: usize) {
         if self.capacity() - self.len() < additional {
             self.entities.reserve(additional);
-            self.realloc_columns(additional);
+            self.realloc_columns(self.capacity() + additional);
         }
     }
 
@@ -199,8 +203,11 @@ impl Column {
                 .repeat(new_capacity)
                 .expect("Array layout creation should succeed");
 
-            let data =
-                unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) };
+            let data = if self.capacity() != 0 {
+                unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) }
+            } else {
+                unsafe { std::alloc::alloc(new_layout) }
+            };
 
             self.data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(new_layout));
         }

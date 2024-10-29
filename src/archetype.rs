@@ -63,6 +63,35 @@ pub struct Archetypes {
 }
 
 impl Archetypes {
+    pub fn get_id_or_insert(
+        &mut self,
+        components: &Components,
+        table_id: TableId,
+        ids: &[ComponentId],
+    ) -> ArchetypeId {
+        let identifier = ArchetypeComponents {
+            components: ids.into(),
+        };
+
+        *self
+            .archetype_index
+            .entry(identifier)
+            .or_insert_with_key(|ident| {
+                let id = ArchetypeId(self.archetypes.len());
+
+                for comp_id in ids {
+                    self.component_index
+                        .entry(*comp_id)
+                        .or_insert_with(HashSet::new)
+                        .insert(id);
+                }
+
+                self.archetypes
+                    .push(Archetype::new(id, components, table_id, ids.into()));
+                id
+            })
+    }
+
     pub(crate) fn has_component(
         &self,
         archetype_id: ArchetypeId,
@@ -71,5 +100,9 @@ impl Archetypes {
         self.component_index
             .get(&component)
             .and_then(|s| Some(s.contains(&archetype_id)))
+    }
+
+    pub fn len(&self) -> usize {
+        self.archetypes.len()
     }
 }

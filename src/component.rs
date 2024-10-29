@@ -81,6 +81,10 @@ impl Components {
     pub fn components(&self) -> impl Iterator<Item = ComponentId> + use<'_> {
         self.components.iter().map(|info| info.id)
     }
+
+    pub fn len(&self) -> usize {
+        self.components.len()
+    }
 }
 
 pub trait Bundle {

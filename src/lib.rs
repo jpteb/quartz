@@ -43,9 +43,16 @@ impl World {
                 let table_id = self
                     .tables
                     .get_id_or_insert(&component_ids, &self.components);
+                println!("table: {:?}", table_id);
+
+                let archetype_id =
+                    self.archetypes
+                        .get_id_or_insert(&self.components, table_id, &component_ids);
+                println!("archetype: {:?}", archetype_id);
 
                 let table_row = if let Some(table) = self.tables.get_mut(table_id) {
                     let row = table.allocate(entity);
+                    println!("row: {:?}", row);
                     bundle.get(&mut self.components, &mut |id, ptr| unsafe {
                         table
                             .get_column_mut(id)
@@ -58,7 +65,7 @@ impl World {
                 };
 
                 Ok(entity::EntityLocation {
-                    archetype_id: ArchetypeId(0),
+                    archetype_id,
                     table_id,
                     table_row,
                 })
@@ -94,40 +101,24 @@ mod tests {
         let entity = world.spawn(MyComponent(1));
 
         assert_eq!(entity, Entity::from(0, 0));
+
+        let comp_id = world.components.component_id::<MyComponent>().unwrap();
+        assert_eq!(world.has_component(entity, comp_id), Some(true));
     }
 
-    // #[test]
-    // fn test_has_component() {
-    //     let mut world = World::default();
-    //     let comps = vec![ComponentId::new(0), ComponentId::new(1)];
-    //
-    //     let entity = world.spawn(comps);
-    //
-    //     assert!(world.has_component(entity, ComponentId::new(0)));
-    //     assert!(world.has_component(entity, ComponentId::new(1)));
-    //     assert!(!world.has_component(entity, ComponentId::new(2)));
-    // }
-    //
-    // #[test]
-    // fn test_get_archetype() {
-    //     let mut world = World::default();
-    //     let comps1 = vec![ComponentId::new(0), ComponentId::new(1)];
-    //     let entity1 = world.spawn(comps1.clone());
-    //     let comps2 = vec![ComponentId::new(0), ComponentId::new(2)];
-    //     let entity2 = world.spawn(comps2);
-    //     let entity3 = world.spawn(comps1);
-    //
-    //     assert_eq!(
-    //         world.get_archetypes_by_comp(ComponentId::new(0)),
-    //         vec![ArchetypeId(0), ArchetypeId(1)]
-    //     );
-    //     assert_eq!(
-    //         world.get_archetypes_by_comp(ComponentId::new(1)),
-    //         vec![ArchetypeId(0)]
-    //     );
-    //     assert_eq!(
-    //         world.get_archetypes_by_comp(ComponentId::new(2)),
-    //         vec![ArchetypeId(1)]
-    //     );
-    // }
+    #[test]
+    fn spawn_multiple() {
+        let mut world = World::new();
+
+        let e0 = world.spawn(MyComponent(0));
+        let e1 = world.spawn(MyComponent(1));
+
+        assert_eq!(e0, Entity::from(0, 0));
+        assert_eq!(e1, Entity::from(0, 1));
+
+        assert_eq!(world.archetypes.len(), 1);
+        assert_eq!(world.components.len(), 1);
+        assert_eq!(world.entities.len(), 2);
+        assert_eq!(world.tables.len(), 1);
+    }
 }

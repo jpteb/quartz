@@ -7,13 +7,13 @@ type Generation = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Entity {
-    index: u32,
     generation: Generation,
+    index: u32,
 }
 
 impl Entity {
-    pub(crate) fn from(index: u32, generation: Generation) -> Self {
-        Self { index, generation }
+    pub(crate) fn from(generation: Generation, index: u32) -> Self {
+        Self { generation, index }
     }
 }
 
@@ -64,7 +64,7 @@ impl Entities {
     ) -> Result<Entity, ()> {
         if let Some(EntityEntry { entry, generation }) = self.entities.get_mut(self.free_head) {
             if let Entry::Free { next_free } = entry {
-                let entity = Entity::from(self.free_head as u32, *generation);
+                let entity = Entity::from(*generation, self.free_head as u32);
                 if let Ok(loc) = f(entity) {
                     self.free_head = *next_free;
                     *entry = Entry::Occupied { loc };
@@ -75,7 +75,7 @@ impl Entities {
                 panic!("Entities free list is corrupt, failed to allocate entity!");
             }
         } else {
-            let entity = Entity::from(self.entities.len() as u32, 0);
+            let entity = Entity::from(0, self.entities.len() as u32);
             if let Ok(loc) = f(entity) {
                 self.entities.push(EntityEntry {
                     generation: 0,
@@ -117,6 +117,10 @@ impl Entities {
                 }
             }
         }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entities.len()
     }
 }
 
