@@ -90,7 +90,7 @@ impl Components {
 pub trait Bundle {
     fn get_components(self, func: &mut impl FnMut(OwningPtr<'_>));
     fn component_ids(components: &mut Components, func: &mut impl FnMut(ComponentId));
-    fn get(self, components: &mut Components, func: &mut impl FnMut(ComponentId, OwningPtr<'_>));
+    fn get(self, components: &Components, func: &mut impl FnMut(ComponentId, OwningPtr<'_>));
 }
 
 impl<C: Component> Bundle for C {
@@ -102,8 +102,10 @@ impl<C: Component> Bundle for C {
         func(components.register_component::<C>());
     }
 
-    fn get(self, components: &mut Components, func: &mut impl FnMut(ComponentId, OwningPtr<'_>)) {
-        OwningPtr::make(self, |ptr| func(components.component_id::<C>().unwrap(), ptr));
+    fn get(self, components: &Components, func: &mut impl FnMut(ComponentId, OwningPtr<'_>)) {
+        OwningPtr::make(self, |ptr| {
+            func(components.component_id::<C>().unwrap(), ptr)
+        });
     }
 }
 

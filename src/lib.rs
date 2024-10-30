@@ -43,20 +43,17 @@ impl World {
                 let table_id = self
                     .tables
                     .get_id_or_insert(&component_ids, &self.components);
-                println!("table: {:?}", table_id);
 
                 let archetype_id =
                     self.archetypes
                         .get_id_or_insert(&self.components, table_id, &component_ids);
-                println!("archetype: {:?}", archetype_id);
 
                 let table_row = if let Some(table) = self.tables.get_mut(table_id) {
                     let row = table.allocate(entity);
-                    println!("row: {:?}", row);
                     bundle.get(&mut self.components, &mut |id, ptr| unsafe {
                         table
                             .get_column_mut(id)
-                            .unwrap()
+                            .expect("the selected table must have the correct column for this component")
                             .initialize_unchecked(row.0, ptr);
                     });
                     row
@@ -70,7 +67,7 @@ impl World {
                     table_row,
                 })
             })
-            .unwrap()
+            .expect("entity allocation should not fail")
     }
 
     fn has_component(&self, entity: Entity, component: ComponentId) -> Option<bool> {
