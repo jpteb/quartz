@@ -89,7 +89,7 @@ mod tests {
 
     use super::*;
 
-    struct MyComponent(usize);
+    struct MyComponent(u32);
     impl Component for MyComponent {}
 
     #[test]
@@ -116,6 +116,21 @@ mod tests {
         assert_eq!(world.archetypes.len(), 1);
         assert_eq!(world.components.len(), 1);
         assert_eq!(world.entities.len(), 2);
+        assert_eq!(world.tables.len(), 1);
+    }
+
+    #[test]
+    fn spawn_batch() {
+        const BATCH_SIZE: u32 = 1000000;
+        let mut world = World::new();
+
+        for i in 0..BATCH_SIZE {
+            let entity = world.spawn(MyComponent(i));
+            assert_eq!(entity, Entity::from(0, i));
+        }
+        assert_eq!(world.archetypes.len(), 1);
+        assert_eq!(world.components.len(), 1);
+        assert_eq!(world.entities.len(), BATCH_SIZE as usize);
         assert_eq!(world.tables.len(), 1);
     }
 }
