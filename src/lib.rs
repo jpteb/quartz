@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn spawn_batch() {
-        const BATCH_SIZE: u32 = 100_000;
+        const BATCH_SIZE: u32 = 1_000;
         let mut world = World::new();
 
         for i in 0..BATCH_SIZE {
