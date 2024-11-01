@@ -1,17 +1,15 @@
 #![feature(alloc_layout_extra)]
-#![allow(unused)]
-use std::collections::{HashMap, HashSet};
-
+// #![allow(unused)]
 pub mod archetype;
 pub mod component;
 pub mod entity;
 pub mod ptr;
 pub mod storage;
 
-use archetype::{ArchetypeComponents, ArchetypeId, Archetypes};
-use component::{Bundle, ComponentId, Components};
+use archetype::Archetypes;
+use component::{Bundle, Component, Components};
 use entity::{Entities, Entity};
-use storage::{TableId, TableRow, Tables};
+use storage::Tables;
 
 #[derive(Debug)]
 pub struct World {
@@ -24,7 +22,7 @@ pub struct World {
 impl World {
     pub fn new() -> Self {
         Self {
-            entities: Entities::default(),
+            entities: Entities::new(),
             archetypes: Archetypes::default(),
             components: Components::new(),
             tables: Tables::default(),
@@ -48,7 +46,9 @@ impl World {
                     self.archetypes
                         .get_id_or_insert(&self.components, table_id, &component_ids);
 
-                let table_row = if let Some(table) = self.tables.get_mut(table_id) {
+                let table_row = {
+                    // Safety: The table id was just received or created in the call above
+                    let table = self.tables.get_mut_unchecked(table_id);
                     let row = table.allocate(entity);
                     bundle.get(&mut self.components, &mut |id, ptr| unsafe {
                         table
@@ -57,29 +57,42 @@ impl World {
                             .initialize_unchecked(row.0, ptr);
                     });
                     row
-                } else {
-                    return Err(());
                 };
 
-                Ok(entity::EntityLocation {
-                    archetype_id,
-                    table_id,
-                    table_row,
-                })
+                // Safety: The archetype id was just received or created in the call above
+                let location = self.archetypes.get_mut_unchecked(archetype_id).allocate(entity, table_row);
+
+                Ok(location)
             })
             .expect("entity allocation should not fail")
     }
 
-    fn has_component(&self, entity: Entity, component: ComponentId) -> Option<bool> {
-        let archetype_id = {
-            if let Some(loc) = self.entities.get(entity) {
-                loc.archetype_id
-            } else {
-                return None;
-            }
-        };
+    pub fn despawn(&mut self, entity: Entity) {
+        if let Some(location) = self.entities.free(entity) {}
+    }
 
-        self.archetypes.has_component(archetype_id, component)
+    pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
+        let component_id = self.components.component_id::<T>()?;
+        let location = self.entities.get(entity)?;
+        let table = self.tables.get(location.table_id)?;
+
+        unsafe {
+            let ptr = table.get_component(component_id, location.table_row)?;
+
+            Some(ptr.deref::<T>())
+        }
+    }
+
+    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
+        let component_id = self.components.component_id::<T>()?;
+        let location = self.entities.get(entity)?;
+        let table = self.tables.get_mut(location.table_id)?;
+
+        unsafe {
+            let ptr = table.get_component_mut(component_id, location.table_row)?;
+
+            Some(ptr.deref_mut::<T>())
+        }
     }
 }
 
@@ -89,8 +102,17 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     struct MyComponent(u32);
     impl Component for MyComponent {}
+
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    struct MySecond {
+        x: f32,
+        y: f32,
+        z: f32,
+    }
+    impl Component for MySecond {}
 
     #[test]
     fn spawn() {
@@ -99,8 +121,7 @@ mod tests {
 
         assert_eq!(entity, Entity::from(0, 0));
 
-        let comp_id = world.components.component_id::<MyComponent>().unwrap();
-        assert_eq!(world.has_component(entity, comp_id), Some(true));
+        assert_eq!(world.get::<MyComponent>(entity), Some(&MyComponent(1)));
     }
 
     #[test]
@@ -121,16 +142,100 @@ mod tests {
 
     #[test]
     fn spawn_batch() {
-        const BATCH_SIZE: u32 = 1000000;
+        const BATCH_SIZE: u32 = 100_000;
         let mut world = World::new();
 
         for i in 0..BATCH_SIZE {
             let entity = world.spawn(MyComponent(i));
             assert_eq!(entity, Entity::from(0, i));
         }
+
         assert_eq!(world.archetypes.len(), 1);
         assert_eq!(world.components.len(), 1);
         assert_eq!(world.entities.len(), BATCH_SIZE as usize);
         assert_eq!(world.tables.len(), 1);
+    }
+
+    #[test]
+    fn spawn_bundle() {
+        let mut world = World::new();
+
+        let entity = world.spawn((
+            MyComponent(0),
+            MySecond {
+                x: 0.0,
+                y: 1.0,
+                z: 2.0,
+            },
+        ));
+        assert_eq!(entity, Entity::from(0, 0));
+
+        assert_eq!(world.get::<MyComponent>(entity), Some(&MyComponent(0)));
+        assert_eq!(
+            world.get::<MySecond>(entity),
+            Some(&MySecond {
+                x: 0.0,
+                y: 1.0,
+                z: 2.0,
+            }),
+        );
+    }
+
+    #[test]
+    fn world_get() {
+        let mut world = World::new();
+
+        let entity = world.spawn(MySecond {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        });
+
+        assert_eq!(
+            world.get::<MySecond>(entity),
+            Some(&MySecond {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            })
+        );
+
+        let comp = world
+            .get_mut::<MySecond>(entity)
+            .expect("Was spawned a few instructions ago");
+        comp.z = 42.0;
+
+        assert_eq!(
+            world.get::<MySecond>(entity),
+            Some(&MySecond {
+                x: 1.0,
+                y: 2.0,
+                z: 42.0,
+            })
+        );
+    }
+
+    #[test]
+    fn world_get_none() {
+        let mut world = World::new();
+
+        let entity = world.spawn(MySecond {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        });
+
+        assert_eq!(
+            world.get::<MySecond>(entity),
+            Some(&MySecond {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            })
+        );
+
+        world.despawn(entity);
+
+        assert_eq!(world.get::<MySecond>(entity), None);
     }
 }

@@ -1,14 +1,11 @@
 use core::{
     alloc::Layout,
-    fmt::{self, Formatter, Pointer},
-    marker::PhantomData,
     ptr::NonNull,
 };
 
 use std::{
     alloc::handle_alloc_error,
     collections::HashMap,
-    mem::{self, ManuallyDrop},
 };
 
 use crate::{
@@ -44,7 +41,15 @@ impl Tables {
         self.tables.get_mut(id.index())
     }
 
-    pub fn len(&self) -> usize {
+    /// Retrieves the [`Table`] for the given [`TableId`].
+    ///
+    /// Panics: If the given id does not exist inside this world.
+    pub(crate) fn get_mut_unchecked(&mut self, id: TableId) -> &mut Table {
+        &mut self.tables[id.index()]
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
         self.tables.len()
     }
 }
@@ -62,11 +67,6 @@ impl TableId {
 pub struct TableRow(pub(crate) usize);
 
 impl TableRow {
-    #[inline]
-    const fn from(index: usize) -> Self {
-        Self(index)
-    }
-
     #[inline]
     const fn index(&self) -> usize {
         self.0
@@ -111,7 +111,7 @@ impl Table {
         table_row
     }
 
-    fn reserve(&mut self, additional: usize) {
+    pub(crate) fn reserve(&mut self, additional: usize) {
         if self.capacity() - self.len() < additional {
             self.entities.reserve(additional);
             self.realloc_columns(self.capacity() + additional);
@@ -132,15 +132,23 @@ impl Table {
         self.columns.get_mut(&id)
     }
 
-    unsafe fn get_component(&self, id: ComponentId, row: TableRow) -> Option<Ptr<'_>> {
+    pub(crate) unsafe fn get_component(&self, id: ComponentId, row: TableRow) -> Option<Ptr<'_>> {
         self.get_column(id)
             .map(|col| col.get_unchecked(row.index()))
+    }
+
+    pub(crate) unsafe fn get_component_mut(
+        &mut self,
+        id: ComponentId,
+        row: TableRow,
+    ) -> Option<MutPtr<'_>> {
+        self.get_column_mut(id)
+            .map(|col| col.get_unchecked_mut(row.index()))
     }
 }
 
 impl Drop for Table {
     fn drop(&mut self) {
-        let len = self.entities.len();
         self.entities.clear();
     }
 }
@@ -181,10 +189,6 @@ impl Column {
 
     fn is_zst(&self) -> bool {
         self.item_layout.size() == 0
-    }
-
-    fn len(&self) -> usize {
-        self.len
     }
 
     fn capacity(&self) -> usize {
@@ -231,8 +235,13 @@ impl Column {
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
     }
 
-    pub unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
+    unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
         self.get_ptr().byte_add(self.item_layout.size() * index)
+    }
+
+    unsafe fn get_unchecked_mut(&mut self, index: usize) -> MutPtr<'_> {
+        let size = self.item_layout.size();
+        self.get_ptr_mut().byte_add(size * index)
     }
 
     unsafe fn clear(&mut self) {
@@ -274,14 +283,14 @@ impl Drop for Column {
 #[cfg(test)]
 mod test {
     use crate::{
-        component::{Component, ComponentInfo, Components},
+        component::{Component, Components},
         ptr::OwningPtr,
     };
 
-    use super::{Column, Table, Tables};
+    use super::{Column, Tables};
 
     struct MyComponent {
-        position: (f32, f32, f32),
+        _position: (f32, f32, f32),
     }
     impl Component for MyComponent {}
 
@@ -294,11 +303,11 @@ mod test {
         let mut column = Column::with_capacity(component_info, 5);
         assert_eq!(column.item_layout, component_info.layout);
 
-        let mut c1 = MyComponent {
-            position: (1.0, 2.0, 3.0),
+        let c1 = MyComponent {
+            _position: (1.0, 2.0, 3.0),
         };
-        let mut c2 = MyComponent {
-            position: (3.0, 2.0, 1.0),
+        let c2 = MyComponent {
+            _position: (3.0, 2.0, 1.0),
         };
 
         OwningPtr::make(c1, |ptr| unsafe { column.initialize_unchecked(0, ptr) });
@@ -326,7 +335,6 @@ mod test {
 
         let comp_id1 = components.register_component::<MyComponent>();
         let comp_id2 = components.register_component::<u32>();
-        let comp_id3 = components.register_component::<u8>();
 
         let comp_mix1 = vec![comp_id1];
         let comp_mix12 = vec![comp_id1, comp_id2];
@@ -357,13 +365,5 @@ mod test {
             let ptr = column.get_unchecked(0);
             assert_eq!(ptr.deref::<u32>(), &5);
         }
-    }
-
-    #[test]
-    fn table_get_component() {
-        let mut components = Components::new();
-        let component_id = components.register_component::<u32>();
-
-        let mut table = Table::from_components(&[component_id], &components);
     }
 }

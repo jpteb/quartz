@@ -1,6 +1,6 @@
 use crate::{
-    archetype::{Archetype, ArchetypeId},
-    storage::{Table, TableId, TableRow},
+    archetype::ArchetypeId,
+    storage::{TableId, TableRow},
 };
 
 type Generation = u32;
@@ -37,7 +37,7 @@ struct EntityEntry {
 }
 
 /// The struct handling all [`Entity`]s used in the ECS
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Entities {
     entities: Vec<EntityEntry>,
     free_head: usize,
@@ -45,7 +45,7 @@ pub struct Entities {
 }
 
 impl Entities {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entities: Vec::new(),
             free_head: 0,
@@ -102,21 +102,27 @@ impl Entities {
         None
     }
 
-    pub fn free(&mut self, entity: Entity) {
+    pub fn free(&mut self, entity: Entity) -> Option<EntityLocation> {
         if let Some(EntityEntry { entry, generation }) =
             self.entities.get_mut(entity.index as usize)
         {
             if *generation == entity.generation {
-                if let Entry::Occupied { .. } = entry {
+                if let Entry::Occupied { loc } = entry {
+                    let loc = loc.clone();
+
                     *generation += 1;
                     *entry = Entry::Free {
                         next_free: self.free_head,
                     };
                     self.free_head = entity.index as usize;
                     self.len -= 1;
+
+                    return Some(loc);
                 }
             }
         }
+
+        None
     }
 
     pub fn len(&self) -> usize {
@@ -134,7 +140,7 @@ mod tests {
     fn alloc_entity() {
         let mut entities = Entities::new();
         let entity = entities
-            .alloc(|entity| {
+            .alloc(|_| {
                 Ok(EntityLocation {
                     archetype_id: ArchetypeId(0),
                     table_id: TableId(0),
@@ -148,7 +154,7 @@ mod tests {
         assert_eq!(entity.generation, 0);
 
         let entity = entities
-            .alloc(|entity| {
+            .alloc(|_| {
                 Ok(EntityLocation {
                     archetype_id: ArchetypeId(1),
                     table_id: TableId(1),
@@ -167,7 +173,7 @@ mod tests {
         assert_eq!(entities.get(entity), None);
 
         let double_entity = entities
-            .alloc(|entity| {
+            .alloc(|_| {
                 Ok(EntityLocation {
                     archetype_id: ArchetypeId(1),
                     table_id: TableId(1),
@@ -194,7 +200,7 @@ mod tests {
     fn double_free() {
         let mut entities = Entities::new();
         let entity1 = entities
-            .alloc(|entity| {
+            .alloc(|_| {
                 Ok(EntityLocation {
                     archetype_id: ArchetypeId(0),
                     table_id: TableId(0),
@@ -206,7 +212,7 @@ mod tests {
         entities.free(entity1);
 
         let entity2 = entities
-            .alloc(|entity| {
+            .alloc(|_| {
                 Ok(EntityLocation {
                     archetype_id: ArchetypeId(0),
                     table_id: TableId(0),

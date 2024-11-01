@@ -109,6 +109,27 @@ impl<C: Component> Bundle for C {
     }
 }
 
+impl<C0: Component, C1: Component> Bundle for (C0, C1) {
+    fn get_components(self, func: &mut impl FnMut(OwningPtr<'_>)) {
+        OwningPtr::make(self.0, |ptr| func(ptr));
+        OwningPtr::make(self.1, |ptr| func(ptr));
+    }
+
+    fn component_ids(components: &mut Components, func: &mut impl FnMut(ComponentId)) {
+        func(components.register_component::<C0>());
+        func(components.register_component::<C1>());
+    }
+
+    fn get(self, components: &Components, func: &mut impl FnMut(ComponentId, OwningPtr<'_>)) {
+        OwningPtr::make(self.0, |ptr| {
+            func(components.component_id::<C0>().unwrap(), ptr)
+        });
+        OwningPtr::make(self.1, |ptr| {
+            func(components.component_id::<C1>().unwrap(), ptr)
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::type_name;
