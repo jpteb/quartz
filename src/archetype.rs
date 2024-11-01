@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    component::{ComponentId, Components},
+    component::ComponentId,
     entity::EntityLocation,
     storage::{TableId, TableRow},
     Entity,
@@ -36,17 +36,11 @@ pub struct Archetype {
 }
 
 impl Archetype {
-    fn new(
-        id: ArchetypeId,
-        components: &Components,
-        table: TableId,
-        mut component_ids: Vec<ComponentId>,
-    ) -> Self {
+    fn new(id: ArchetypeId, table: TableId, component_ids: &[ComponentId]) -> Self {
         let mut comps = HashMap::new();
-        component_ids.sort();
 
-        for component_id in components.components() {
-            comps.insert(component_id, comps.len());
+        for component_id in component_ids {
+            comps.insert(*component_id, comps.len());
         }
 
         Self {
@@ -62,6 +56,7 @@ impl Archetype {
     }
 
     pub(crate) fn allocate(&mut self, entity: Entity, table_row: TableRow) -> EntityLocation {
+        debug_assert!(self.entities.len() == table_row.0);
         self.entities.push(EntityRecord {
             entity,
             row: table_row,
@@ -71,6 +66,18 @@ impl Archetype {
             archetype_id: self.id,
             table_id: self.table,
             table_row,
+        }
+    }
+
+    pub(crate) fn swap_remove(&mut self, row: TableRow) -> Option<Entity> {
+        let is_last = self.entities.len() - 1 == row.0;
+        let _ = self.entities.swap_remove(row.0);
+
+        if !is_last {
+            // Return the now moved entity
+            Some(self.entities[row.0].entity)
+        } else {
+            None
         }
     }
 }
@@ -83,33 +90,25 @@ pub struct Archetypes {
 }
 
 impl Archetypes {
-    pub fn get_id_or_insert(
-        &mut self,
-        components: &Components,
-        table_id: TableId,
-        ids: &[ComponentId],
-    ) -> ArchetypeId {
+    pub fn get_id_or_insert(&mut self, table_id: TableId, ids: &[ComponentId]) -> ArchetypeId {
         let identifier = ArchetypeComponents {
             components: ids.into(),
         };
 
-        *self
-            .archetype_index
-            .entry(identifier)
-            .or_insert_with(|| {
-                let id = ArchetypeId(self.archetypes.len());
+        *self.archetype_index.entry(identifier).or_insert_with(|| {
+            let id = ArchetypeId(self.archetypes.len());
 
-                for comp_id in ids {
-                    self.component_index
-                        .entry(*comp_id)
-                        .or_insert_with(HashSet::new)
-                        .insert(id);
-                }
+            for comp_id in ids {
+                self.component_index
+                    .entry(*comp_id)
+                    .or_insert_with(HashSet::new)
+                    .insert(id);
+            }
 
-                self.archetypes
-                    .push(Archetype::new(id, components, table_id, ids.into()));
-                id
-            })
+            self.archetypes
+                .push(Archetype::new(id, table_id, ids.into()));
+            id
+        })
     }
 
     pub(crate) fn get_mut(&mut self, archetype_id: ArchetypeId) -> Option<&mut Archetype> {

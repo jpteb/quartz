@@ -1,5 +1,4 @@
 #![feature(alloc_layout_extra)]
-// #![allow(unused)]
 pub mod archetype;
 pub mod component;
 pub mod entity;
@@ -44,7 +43,7 @@ impl World {
 
                 let archetype_id =
                     self.archetypes
-                        .get_id_or_insert(&self.components, table_id, &component_ids);
+                        .get_id_or_insert(table_id, &component_ids);
 
                 let table_row = {
                     // Safety: The table id was just received or created in the call above
@@ -67,8 +66,14 @@ impl World {
             .expect("entity allocation should not fail")
     }
 
+    // TODO: finish this
     pub fn despawn(&mut self, entity: Entity) {
-        if let Some(location) = self.entities.free(entity) {}
+        if let Some(location) = self.entities.free(entity) {
+            let archetype = self.archetypes.get_mut_unchecked(location.archetype_id);
+            if let Some(swapped_entity) = archetype.swap_remove(location.table_row) {
+                
+            }
+        }
     }
 
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
