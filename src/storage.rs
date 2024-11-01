@@ -1,12 +1,6 @@
-use core::{
-    alloc::Layout,
-    ptr::NonNull,
-};
+use core::{alloc::Layout, ptr::NonNull};
 
-use std::{
-    alloc::handle_alloc_error,
-    collections::HashMap,
-};
+use std::{alloc::handle_alloc_error, collections::HashMap};
 
 use crate::{
     component::{ComponentId, ComponentInfo, Components},

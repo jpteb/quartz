@@ -48,7 +48,14 @@
 
           # export the crate devshell as the default devshell
           devShells.default = crateOutputs.devShell.overrideAttrs (old: {
-            packages = with pkgs; (old.packages or [ ]) ++ [ bacon cargo-flamegraph cargo-nextest ];
+            packages =
+              with pkgs;
+              (old.packages or [ ])
+              ++ [
+                bacon
+                cargo-flamegraph
+                cargo-nextest
+              ];
           });
           # export the release package of the crate as default package
           packages.default = crateOutputs.packages.release;

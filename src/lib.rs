@@ -70,9 +70,7 @@ impl World {
     pub fn despawn(&mut self, entity: Entity) {
         if let Some(location) = self.entities.free(entity) {
             let archetype = self.archetypes.get_mut_unchecked(location.archetype_id);
-            if let Some(swapped_entity) = archetype.swap_remove(location.table_row) {
-                
-            }
+            if let Some(swapped_entity) = archetype.swap_remove(location.table_row) {}
         }
     }
 
