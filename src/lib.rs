@@ -53,12 +53,11 @@ impl World {
                         table
                             .get_column_mut(id)
                             .expect("the selected table must have the correct column for this component")
-                            .initialize_unchecked(row.0, ptr);
+                            .initialize_unchecked(row.index(), ptr);
                     });
                     row
                 };
 
-                // Safety: The archetype id was just received or created in the call above
                 let location = self.archetypes.get_mut_unchecked(archetype_id).allocate(entity, table_row);
 
                 Ok(location)
@@ -70,7 +69,12 @@ impl World {
     pub fn despawn(&mut self, entity: Entity) {
         if let Some(location) = self.entities.free(entity) {
             let archetype = self.archetypes.get_mut_unchecked(location.archetype_id);
-            if let Some(swapped_entity) = archetype.swap_remove(location.table_row) {}
+            if let Some(swapped_entity) = archetype.swap_remove(location.table_row) {
+                let swap_location = self
+                    .entities
+                    .get(swapped_entity)
+                    .expect("Entity must exist, as it was just swapped");
+            }
         }
     }
 

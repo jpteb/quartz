@@ -62,7 +62,7 @@ pub struct TableRow(pub(crate) usize);
 
 impl TableRow {
     #[inline]
-    const fn index(&self) -> usize {
+    pub(crate) const fn index(&self) -> usize {
         self.0
     }
 }

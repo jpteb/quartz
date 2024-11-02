@@ -55,6 +55,8 @@
                 bacon
                 cargo-flamegraph
                 cargo-nextest
+                critcmp
+                gnuplot
               ];
           });
           # export the release package of the crate as default package

@@ -4,4 +4,14 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Jan Philipp Tebernum <jan.tebernum@pm.me>"]
 
+[lib]
+bench = false
+
 [dependencies]
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "world_bench"
+harness = false

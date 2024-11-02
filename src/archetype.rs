@@ -56,7 +56,7 @@ impl Archetype {
     }
 
     pub(crate) fn allocate(&mut self, entity: Entity, table_row: TableRow) -> EntityLocation {
-        debug_assert!(self.entities.len() == table_row.0);
+        debug_assert!(self.entities.len() == table_row.index());
         self.entities.push(EntityRecord {
             entity,
             row: table_row,
@@ -70,12 +70,12 @@ impl Archetype {
     }
 
     pub(crate) fn swap_remove(&mut self, row: TableRow) -> Option<Entity> {
-        let is_last = self.entities.len() - 1 == row.0;
-        let _ = self.entities.swap_remove(row.0);
+        let is_last = self.entities.len() - 1 == row.index();
+        let _ = self.entities.swap_remove(row.index());
 
         if !is_last {
             // Return the now moved entity
-            Some(self.entities[row.0].entity)
+            Some(self.entities[row.index()].entity)
         } else {
             None
         }
@@ -109,10 +109,6 @@ impl Archetypes {
                 .push(Archetype::new(id, table_id, ids.into()));
             id
         })
-    }
-
-    pub(crate) fn get_mut(&mut self, archetype_id: ArchetypeId) -> Option<&mut Archetype> {
-        self.archetypes.get_mut(archetype_id.index())
     }
 
     /// Receives the [`Archetype`] for the given [`ArchetypeId`].
