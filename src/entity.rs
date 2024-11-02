@@ -102,6 +102,24 @@ impl Entities {
         None
     }
 
+    fn get_mut(&mut self, entity: Entity) -> Option<&mut EntityLocation> {
+        if let Some(EntityEntry { entry, generation }) = self.entities.get_mut(entity.index as usize) {
+            if let Entry::Occupied { loc } = entry {
+                if *generation == entity.generation {
+                    return Some(loc);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn set(&mut self, entity: Entity, location: EntityLocation) {
+        if let Some(loc) = self.get_mut(entity) {
+            *loc = location;
+        }
+    }
+
     pub fn free(&mut self, entity: Entity) -> Option<EntityLocation> {
         if let Some(EntityEntry { entry, generation }) =
             self.entities.get_mut(entity.index as usize)

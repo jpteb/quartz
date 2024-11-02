@@ -1,4 +1,5 @@
 #![feature(alloc_layout_extra)]
+#![allow(unused)]
 pub mod archetype;
 pub mod component;
 pub mod entity;
@@ -7,7 +8,7 @@ pub mod storage;
 
 use archetype::Archetypes;
 use component::{Bundle, Component, Components};
-use entity::{Entities, Entity};
+use entity::{Entities, Entity, EntityLocation};
 use storage::Tables;
 
 #[derive(Debug)]
@@ -65,7 +66,6 @@ impl World {
             .expect("entity allocation should not fail")
     }
 
-    // TODO: finish this
     pub fn despawn(&mut self, entity: Entity) {
         if let Some(location) = self.entities.free(entity) {
             let archetype = self.archetypes.get_mut_unchecked(location.archetype_id);
@@ -74,7 +74,18 @@ impl World {
                     .entities
                     .get(swapped_entity)
                     .expect("Entity must exist, as it was just swapped");
+
+                self.entities.set(
+                    swapped_entity,
+                    EntityLocation {
+                        table_row: location.table_row,
+                        ..*swap_location
+                    },
+                );
             }
+
+            let table = self.tables.get_mut_unchecked(location.table_id);
+            table.swap_remove(location.table_row);
         }
     }
 
@@ -105,7 +116,9 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    use archetype::ArchetypeId;
     use component::Component;
+    use storage::{TableId, TableRow};
 
     use super::*;
 
@@ -114,12 +127,12 @@ mod tests {
     impl Component for MyComponent {}
 
     #[derive(Debug, PartialEq, Clone, Copy)]
-    struct MySecond {
+    struct Position {
         x: f32,
         y: f32,
         z: f32,
     }
-    impl Component for MySecond {}
+    impl Component for Position {}
 
     #[test]
     fn spawn() {
@@ -155,6 +168,7 @@ mod tests {
         for i in 0..BATCH_SIZE {
             let entity = world.spawn(MyComponent(i));
             assert_eq!(entity, Entity::from(0, i));
+            assert_eq!(world.get::<MyComponent>(entity), Some(&MyComponent(i)));
         }
 
         assert_eq!(world.archetypes.len(), 1);
@@ -169,7 +183,7 @@ mod tests {
 
         let entity = world.spawn((
             MyComponent(0),
-            MySecond {
+            Position {
                 x: 0.0,
                 y: 1.0,
                 z: 2.0,
@@ -179,8 +193,8 @@ mod tests {
 
         assert_eq!(world.get::<MyComponent>(entity), Some(&MyComponent(0)));
         assert_eq!(
-            world.get::<MySecond>(entity),
-            Some(&MySecond {
+            world.get::<Position>(entity),
+            Some(&Position {
                 x: 0.0,
                 y: 1.0,
                 z: 2.0,
@@ -192,15 +206,15 @@ mod tests {
     fn world_get() {
         let mut world = World::new();
 
-        let entity = world.spawn(MySecond {
+        let entity = world.spawn(Position {
             x: 1.0,
             y: 2.0,
             z: 3.0,
         });
 
         assert_eq!(
-            world.get::<MySecond>(entity),
-            Some(&MySecond {
+            world.get::<Position>(entity),
+            Some(&Position {
                 x: 1.0,
                 y: 2.0,
                 z: 3.0,
@@ -208,13 +222,13 @@ mod tests {
         );
 
         let comp = world
-            .get_mut::<MySecond>(entity)
+            .get_mut::<Position>(entity)
             .expect("Was spawned a few instructions ago");
         comp.z = 42.0;
 
         assert_eq!(
-            world.get::<MySecond>(entity),
-            Some(&MySecond {
+            world.get::<Position>(entity),
+            Some(&Position {
                 x: 1.0,
                 y: 2.0,
                 z: 42.0,
@@ -223,26 +237,99 @@ mod tests {
     }
 
     #[test]
-    fn world_get_none() {
+    fn despawn() {
         let mut world = World::new();
 
-        let entity = world.spawn(MySecond {
+        let e0 = world.spawn(Position {
             x: 1.0,
             y: 2.0,
             z: 3.0,
         });
+        let e1 = world.spawn(Position {
+            x: 2.0,
+            y: 3.0,
+            z: 4.0,
+        });
 
         assert_eq!(
-            world.get::<MySecond>(entity),
-            Some(&MySecond {
+            world.get::<Position>(e0),
+            Some(&Position {
                 x: 1.0,
                 y: 2.0,
                 z: 3.0,
             })
         );
+        assert_eq!(
+            world.entities.get(e0),
+            Some(&EntityLocation {
+                archetype_id: ArchetypeId(0),
+                table_id: TableId(0),
+                table_row: TableRow(0)
+            })
+        );
+        assert_eq!(
+            world.get::<Position>(e1),
+            Some(&Position {
+                x: 2.0,
+                y: 3.0,
+                z: 4.0,
+            })
+        );
+        assert_eq!(
+            world.entities.get(e1),
+            Some(&EntityLocation {
+                archetype_id: ArchetypeId(0),
+                table_id: TableId(0),
+                table_row: TableRow(1)
+            })
+        );
 
-        world.despawn(entity);
+        world.despawn(e0);
 
-        assert_eq!(world.get::<MySecond>(entity), None);
+        assert_eq!(world.get::<Position>(e0), None);
+        assert_eq!(world.entities.get(e0), None);
+        assert_eq!(
+            world.entities.get(e1),
+            Some(&EntityLocation {
+                archetype_id: ArchetypeId(0),
+                table_id: TableId(0),
+                table_row: TableRow(0)
+            })
+        );
+        assert_eq!(
+            world.get::<Position>(e1),
+            Some(&Position {
+                x: 2.0,
+                y: 3.0,
+                z: 4.0,
+            })
+        );
+
+        world.despawn(e1);
+        assert_eq!(world.get::<Position>(e1), None);
+        assert_eq!(world.entities.get(e1), None);
+    }
+
+    #[test]
+    fn swap_remove() {
+        let mut world = World::new();
+        let e0 = world.spawn(MyComponent(0));
+        let e1 = world.spawn(MyComponent(1));
+        let e2 = world.spawn(MyComponent(2));
+
+        world.despawn(e0);
+        assert_eq!(world.get::<MyComponent>(e2), Some(&MyComponent(2)));
+        assert_eq!(world.get::<MyComponent>(e1), Some(&MyComponent(1)));
+        assert_eq!(world.get::<MyComponent>(e0), None);
+
+        world.despawn(e2);
+        assert_eq!(world.get::<MyComponent>(e2), None);
+        assert_eq!(world.get::<MyComponent>(e1), Some(&MyComponent(1)));
+        assert_eq!(world.get::<MyComponent>(e0), None);
+
+        world.despawn(e1);
+        assert_eq!(world.get::<MyComponent>(e2), None);
+        assert_eq!(world.get::<MyComponent>(e1), None);
+        assert_eq!(world.get::<MyComponent>(e0), None);
     }
 }

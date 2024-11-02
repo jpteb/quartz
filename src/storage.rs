@@ -139,6 +139,20 @@ impl Table {
         self.get_column_mut(id)
             .map(|col| col.get_unchecked_mut(row.index()))
     }
+
+    pub(crate) fn swap_remove(&mut self, table_row: TableRow) {
+        let index = table_row.index();
+        if index == self.entities.len() - 1 {
+            for col in self.columns.values_mut() {
+                col.drop_last();
+            }
+        } else {
+            for col in self.columns.values_mut() {
+                col.swap_remove(index);
+            }
+        }
+        self.entities.swap_remove(index);
+    }
 }
 
 impl Drop for Table {
@@ -157,19 +171,10 @@ pub(crate) struct Column {
 }
 
 impl Column {
-    pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
+    fn new(component_info: &ComponentInfo) -> Self {
         let item_layout = component_info.layout;
-
-        let data = if capacity == 0 || item_layout.size() == 0 {
-            // create an aligned dangling pointer
-            unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
-        } else {
-            let (array_layout, _off) = item_layout
-                .repeat(capacity)
-                .expect("Array layout creation should be successful!");
-
-            let data = unsafe { std::alloc::alloc(array_layout) };
-            NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout))
+        let data = unsafe {
+            NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align()))
         };
 
         Self {
@@ -177,8 +182,37 @@ impl Column {
             data,
             drop: component_info.drop,
             len: 0,
-            capacity,
+            capacity: 0,
         }
+    }
+
+    pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
+        let item_layout = component_info.layout;
+
+        // let data = if capacity == 0 || item_layout.size() == 0 {
+        //     // create an aligned dangling pointer
+        //     unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
+        // } else {
+        //     let (array_layout, _off) = item_layout
+        //         .repeat(capacity)
+        //         .expect("Array layout creation should be successful!");
+        //
+        //     let data = unsafe { std::alloc::alloc(array_layout) };
+        //     NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout))
+        // };
+        //
+        // Self {
+        //     item_layout,
+        //     data,
+        //     drop: component_info.drop,
+        //     len: 0,
+        //     capacity,
+        // }
+        let mut init = Self::new(component_info);
+        if capacity != 0 {
+            init.realloc(capacity);
+        }
+        init
     }
 
     fn is_zst(&self) -> bool {
@@ -227,6 +261,7 @@ impl Column {
         let dst = self.data.byte_add(index * size);
         //TODO: is this always nonoverlapping?
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
+        self.len += 1;
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
@@ -253,6 +288,36 @@ impl Column {
             self.drop = Some(drop);
         }
     }
+
+    fn drop_last(&mut self) {
+        let size = self.item_layout.size();
+        let len = self.len;
+        if let Some(drop) = self.drop {
+            self.drop = None;
+
+            unsafe {
+                let item = self.get_ptr_mut().byte_add(len * size).promote();
+
+                drop(item);
+            }
+
+            self.drop = Some(drop);
+        }
+        self.len -= 1;
+    }
+
+    fn swap_remove(&mut self, index: usize) {
+        debug_assert_ne!(index, self.len - 1);
+        unsafe {
+            core::ptr::swap_nonoverlapping::<u8>(
+                self.get_unchecked_mut(index).as_ptr(),
+                self.get_unchecked_mut(self.len - 1).as_ptr(),
+                self.item_layout.size(),
+            )
+        };
+        // self.drop_last();
+        self.len -= 1;
+    }
 }
 
 impl Drop for Column {
@@ -275,7 +340,7 @@ impl Drop for Column {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::{
         component::{Component, Components},
         ptr::OwningPtr,
@@ -358,6 +423,45 @@ mod test {
         unsafe {
             let ptr = column.get_unchecked(0);
             assert_eq!(ptr.deref::<u32>(), &5);
+        }
+    }
+
+    #[test]
+    fn swap_remove() {
+        const COMP_COUNT: usize = 5;
+        let mut components = Components::new();
+        let component_id = components.register_component::<u32>();
+        let component_info = components.get_info(&component_id).unwrap();
+
+        let mut column = Column::with_capacity(component_info, COMP_COUNT);
+        assert_eq!(column.capacity(), COMP_COUNT);
+
+        for i in 0..COMP_COUNT {
+            OwningPtr::make(i as u32, |ptr| unsafe { column.initialize_unchecked(i, ptr) });
+        }
+        assert_eq!(column.len, 5);
+
+        unsafe {
+            let ptr = column.get_unchecked(2);
+            assert_eq!(ptr.deref::<u32>(), &2);
+        }
+
+        column.swap_remove(2);
+        assert_eq!(column.len, 4);
+
+        unsafe {
+            let ptr = column.get_unchecked(2);
+            assert_eq!(ptr.deref::<u32>(), &4);
+        }
+
+        column.drop_last();
+        assert_eq!(column.len, 3);
+        column.drop_last();
+        assert_eq!(column.len, 2);
+
+        unsafe {
+            let ptr = column.get_unchecked(1);
+            assert_eq!(ptr.deref::<u32>(), &1);
         }
     }
 }
