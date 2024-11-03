@@ -4,11 +4,13 @@ pub mod archetype;
 pub mod component;
 pub mod entity;
 pub mod ptr;
+pub mod query;
 pub mod storage;
 
 use archetype::Archetypes;
 use component::{Bundle, Component, Components};
 use entity::{Entities, Entity, EntityLocation};
+use query::Query;
 use storage::Tables;
 
 #[derive(Debug)]
@@ -47,7 +49,6 @@ impl World {
                         .get_id_or_insert(table_id, &component_ids);
 
                 let table_row = {
-                    // Safety: The table id was just received or created in the call above
                     let table = self.tables.get_mut_unchecked(table_id);
                     let row = table.allocate(entity);
                     bundle.get(&mut self.components, &mut |id, ptr| unsafe {
@@ -111,6 +112,10 @@ impl World {
 
             Some(ptr.deref_mut::<T>())
         }
+    }
+
+    pub fn query<T: Component>(&mut self) -> Query<T> {
+        Query::new()
     }
 }
 
