@@ -8,7 +8,7 @@ pub mod query;
 pub mod storage;
 
 use archetype::Archetypes;
-use component::{Bundle, Component, Components};
+use component::{Bundle, Component, ComponentId, Components};
 use entity::{Entities, Entity, EntityLocation};
 use query::Query;
 use storage::Tables;
@@ -115,7 +115,14 @@ impl World {
     }
 
     pub fn query<T: Component>(&mut self) -> Query<T> {
-        Query::new()
+        let id = self.components.register_component::<T>();
+        let (archetype_ids, table_ids) = self.archetypes.get_query_archetypes(&[id]);
+
+        Query::new(self, archetype_ids, table_ids)
+    }
+
+    pub fn component_id<T: Component>(&self) -> Option<ComponentId> {
+        self.components.component_id::<T>()
     }
 }
 
@@ -336,5 +343,55 @@ mod tests {
         assert_eq!(world.get::<MyComponent>(e2), None);
         assert_eq!(world.get::<MyComponent>(e1), None);
         assert_eq!(world.get::<MyComponent>(e0), None);
+    }
+
+    #[test]
+    fn query() {
+        let mut world = World::new();
+
+        let e0 = world.spawn(MyComponent(0));
+        let e1 = world.spawn(MyComponent(1));
+        let e2 = world.spawn(MyComponent(2));
+
+        let mut query = world.query::<MyComponent>();
+
+        assert_eq!(query.next(), Some(&MyComponent(0)));
+        assert_eq!(query.next(), Some(&MyComponent(1)));
+        assert_eq!(query.next(), Some(&MyComponent(2)));
+        assert_eq!(query.next(), None);
+    }
+
+    #[test]
+    fn query_multiple() {
+        let mut world = World::new();
+
+        let e0 = world.spawn(MyComponent(0));
+        let e1 = world.spawn(MyComponent(1));
+        let e2 = world.spawn((
+            Position {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            MyComponent(2),
+        ));
+
+        let mut query = world.query::<MyComponent>();
+
+        assert_eq!(query.next(), Some(&MyComponent(0)));
+        assert_eq!(query.next(), Some(&MyComponent(1)));
+        assert_eq!(query.next(), Some(&MyComponent(2)));
+        assert_eq!(query.next(), None);
+
+        let mut query = world.query::<Position>();
+        assert_eq!(
+            query.next(),
+            Some(&Position {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            })
+        );
+        assert_eq!(query.next(), None);
     }
 }

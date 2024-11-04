@@ -32,27 +32,27 @@ pub struct Archetype {
     id: ArchetypeId,
     table: TableId,
     entities: Vec<EntityRecord>,
-    components: HashMap<ComponentId, usize>,
+    components: HashSet<ComponentId>,
 }
 
 impl Archetype {
     fn new(id: ArchetypeId, table: TableId, component_ids: &[ComponentId]) -> Self {
-        let mut comps = HashMap::new();
+        let mut components = HashSet::new();
 
-        for component_id in component_ids {
-            comps.insert(*component_id, comps.len());
+        for comp_id in component_ids {
+            components.insert(*comp_id);
         }
 
         Self {
             id,
             entities: Vec::new(),
-            components: comps,
+            components,
             table,
         }
     }
 
     fn contains(&self, id: ComponentId) -> bool {
-        self.components.contains_key(&id)
+        self.components.contains(&id)
     }
 
     pub(crate) fn allocate(&mut self, entity: Entity, table_row: TableRow) -> EntityLocation {
@@ -79,6 +79,10 @@ impl Archetype {
         } else {
             None
         }
+    }
+
+    fn is_superset_of(&self, sub: &HashSet<ComponentId>) -> bool {
+        self.components.is_superset(sub)
     }
 }
 
@@ -114,11 +118,47 @@ impl Archetypes {
     /// Receives the [`Archetype`] for the given [`ArchetypeId`].
     ///
     /// Panics: If the archetype does not exist in this world.
+    pub(crate) fn get_unchecked(&self, archetype_id: ArchetypeId) -> &Archetype {
+        &self.archetypes[archetype_id.index()]
+    }
+
+    /// Receives the [`Archetype`] for the given [`ArchetypeId`].
+    ///
+    /// Panics: If the archetype does not exist in this world.
     pub(crate) fn get_mut_unchecked(&mut self, archetype_id: ArchetypeId) -> &mut Archetype {
         &mut self.archetypes[archetype_id.index()]
     }
 
     pub fn len(&self) -> usize {
         self.archetypes.len()
+    }
+
+    pub(crate) fn get_query_archetypes(
+        &self,
+        components: &[ComponentId],
+    ) -> (Vec<ArchetypeId>, Vec<TableId>) {
+        let initial = if let Some(initial) = self.component_index.get(&components[0]) {
+            initial
+        } else {
+            return (vec![], vec![]);
+        };
+
+        let mut comps = HashSet::new();
+        for comp in components {
+            comps.insert(*comp);
+        }
+
+        let mut archetype_ids = initial
+            .iter()
+            .filter(|id| self.archetypes[id.index()].is_superset_of(&comps))
+            .copied()
+            .collect::<Vec<_>>();
+        let mut table_ids = archetype_ids
+            .iter()
+            .map(|id| self.archetypes[id.index()].table)
+            .collect::<Vec<_>>();
+        archetype_ids.sort_unstable();
+        table_ids.sort_unstable();
+        (archetype_ids, table_ids)
     }
 }

@@ -48,7 +48,7 @@ impl Tables {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TableId(pub(crate) usize);
 
 impl TableId {
@@ -93,7 +93,7 @@ impl Table {
         self.entities.capacity()
     }
 
-    fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entities.len()
     }
 
