@@ -22,7 +22,6 @@ impl<'world, T: Component> Query<'world, T> {
         archetype_ids: Vec<ArchetypeId>,
         table_ids: Vec<TableId>,
     ) -> Self {
-        println!("{table_ids:?}");
         Self {
             world,
             archetype_ids,
@@ -38,7 +37,6 @@ impl<'world, T: Component> Iterator for Query<'world, T> {
     type Item = &'world T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("current: {0}, current_table: {1}", self.current, self.current_table);
         if self.current_table >= self.table_ids.len() {
             return None;
         }
@@ -71,10 +69,3 @@ impl<'world, T: Component> Iterator for Query<'world, T> {
         }
     }
 }
-
-// pub struct QueryIter<'world, T> {
-//     world: &'world World,
-//     archetype_ids: Vec<ArchetypeId>,
-//     table_ids: Vec<TableId>,
-//     _phtm: PhantomData<&'world T>,
-// }
