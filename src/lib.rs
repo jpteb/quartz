@@ -10,7 +10,7 @@ pub mod storage;
 use archetype::Archetypes;
 use component::{Bundle, Component, ComponentId, Components};
 use entity::{Entities, Entity, EntityLocation};
-use query::Query;
+use query::{Query, Queryable};
 use storage::Tables;
 
 #[derive(Debug)]
@@ -114,11 +114,8 @@ impl World {
         }
     }
 
-    pub fn query<T: Component>(&mut self) -> Query<T> {
-        let id = self.components.register_component::<T>();
-        let (archetype_ids, table_ids) = self.archetypes.get_query_archetypes(&[id]);
-
-        Query::new(self, archetype_ids, table_ids)
+    pub fn query<T: Queryable>(&mut self) -> Query<T> {
+        Query::new(self)
     }
 
     pub fn component_id<T: Component>(&self) -> Option<ComponentId> {
