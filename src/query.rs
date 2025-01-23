@@ -22,11 +22,11 @@ pub trait Queryable {
         row: TableRow,
     ) -> Self::Item<'w>;
 
-    fn matches_components(state: &Self::State, f: &impl Fn(ComponentId) -> bool) -> bool;
+    fn get_component_ids(world: &World, ids: &mut Vec<ComponentId>);
 }
 
 pub struct ComponentFetcher<'w> {
-    table: &'w Table,
+    table: Option<&'w Table>,
 }
 
 impl<T: Component> Queryable for T {
@@ -35,11 +35,13 @@ impl<T: Component> Queryable for T {
     type State = ComponentId;
 
     fn init_fetcher<'w>(world: &'w World) -> Self::Fetcher<'w> {
-        todo!()
+        ComponentFetcher {
+            table: None,
+        }
     }
 
     fn set_table<'w>(fetcher: &'w mut Self::Fetcher<'w>, table: &'w Table) {
-        fetcher.table = table;
+        fetcher.table = Some(table);
     }
 
     fn fetch<'w>(
@@ -50,8 +52,10 @@ impl<T: Component> Queryable for T {
         todo!()
     }
 
-    fn matches_components(state: &Self::State, f: &impl Fn(ComponentId) -> bool) -> bool {
-        f(*state)
+    fn get_component_ids(world: &World, ids: &mut Vec<ComponentId>) {
+        if let Some(id) = world.component_id::<T>() {
+            ids.push(id);
+        }
     }
 }
 
@@ -65,10 +69,13 @@ pub struct Query<'world, T: Queryable> {
 
 impl<'world, T: Queryable> Query<'world, T> {
     pub(crate) fn new(world: &'world World) -> Self {
-        let fetcher = T::init_fetcher(world);
-        let mut matched_tables = Vec::new();
+        let mut matched_tables: Vec<TableId> = Vec::new();
+        let mut component_ids = Vec::new();
+        T::get_component_ids(world, &mut component_ids);
+        let (archetype_ids, matched_tables) = world.archetypes.get_query_archetypes(&component_ids);
 
-        todo!();
+        let mut fetcher = T::init_fetcher(world);
+        // T::set_table(&mut fetcher, world.tables.get(matched_tables[0]).unwrap());
 
         Self {
             world,
@@ -84,11 +91,10 @@ impl<'world, T: Queryable> Iterator for Query<'world, T> {
     type Item = T::Item<'world>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-        // if self.current_table >= self.table_ids.len() {
-        //     return None;
-        // }
-        // let table_id = self.table_ids[self.current_table];
+        if self.current_table >= self.matched_tables.len() {
+            return None;
+        }
+        let table_id = self.matched_tables[self.current_table];
         // // TODO: do this more intelligently
         // let table = {
         //     let table = self.world.tables.get(table_id).expect("must exist");
@@ -115,5 +121,6 @@ impl<'world, T: Queryable> Iterator for Query<'world, T> {
         //
         //     Some(ptr.deref())
         // }
+        None
     }
 }
