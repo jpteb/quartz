@@ -1,6 +1,10 @@
 use core::{alloc::Layout, ptr::NonNull};
 
-use std::{alloc::handle_alloc_error, collections::HashMap};
+use std::{
+    alloc::handle_alloc_error,
+    collections::HashMap,
+    ops::{Add, AddAssign},
+};
 
 use crate::{
     component::{ComponentId, ComponentInfo, Components},
@@ -57,13 +61,39 @@ impl TableId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TableRow(pub(crate) usize);
 
 impl TableRow {
     #[inline]
     pub(crate) const fn index(&self) -> usize {
         self.0
+    }
+}
+
+impl Add for TableRow {
+    type Output = TableRow;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        TableRow(self.0 + rhs.0)
+    }
+}
+
+impl AddAssign<usize> for TableRow {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
+    }
+}
+
+impl PartialOrd<usize> for TableRow {
+    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialEq<usize> for TableRow {
+    fn eq(&self, other: &usize) -> bool {
+        self.0.eq(other)
     }
 }
 
@@ -437,7 +467,9 @@ mod tests {
         assert_eq!(column.capacity(), COMP_COUNT);
 
         for i in 0..COMP_COUNT {
-            OwningPtr::make(i as u32, |ptr| unsafe { column.initialize_unchecked(i, ptr) });
+            OwningPtr::make(i as u32, |ptr| unsafe {
+                column.initialize_unchecked(i, ptr)
+            });
         }
         assert_eq!(column.len, 5);
 

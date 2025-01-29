@@ -114,7 +114,7 @@ impl World {
         }
     }
 
-    pub fn query<T: Queryable>(&mut self) -> Query<T> {
+    pub fn query<'w, T: Queryable<'w>>(&'w mut self) -> Query<'w, T> {
         Query::new(self)
     }
 
