@@ -188,4 +188,21 @@ mod tests {
         );
         assert_eq!(query.next(), None);
     }
+
+    #[test]
+    fn large_query() {
+        const ENTITY_COUNT: u32 = 1000;
+        let mut world = World::new();
+
+        for i in 0..ENTITY_COUNT {
+            world.spawn(MyComponent(i));
+        }
+
+        let mut count = 0;
+        for (i, e) in world.query::<MyComponent>().enumerate() {
+            assert_eq!(e, &MyComponent(i as u32));
+            count += 1;
+        }
+        assert_eq!(count, ENTITY_COUNT);
+    }
 }
