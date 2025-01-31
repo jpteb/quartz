@@ -10,9 +10,11 @@ use crate::{
 
 pub trait Queryable<'w> {
     type Item;
+    type State;
 
+    fn init_state(world: &World) -> Self::State;
+    fn fetch(world: &'w World, state: &Self::State, table: &'w Table, row: TableRow) -> Self::Item;
     fn get_component_ids(world: &World) -> Vec<ComponentId>;
-    fn fetch(world: &'w World, table: &'w Table, row: TableRow) -> Self::Item;
 }
 
 pub struct ComponentFetcher<'w> {
@@ -21,26 +23,57 @@ pub struct ComponentFetcher<'w> {
 
 impl<'w, T: Component> Queryable<'w> for T {
     type Item = &'w T;
+    type State = ComponentId;
+
+    fn init_state(world: &World) -> Self::State {
+        world
+            .component_id::<T>()
+            .expect("Tried to query a Component that has not been spawned in the world")
+    }
+
+    fn fetch(world: &'w World, state: &Self::State, table: &'w Table, row: TableRow) -> Self::Item {
+        unsafe {
+            let ptr = table
+                .get_component(*state, row)
+                .expect("failed to receive item from table");
+            ptr.deref()
+        }
+    }
 
     fn get_component_ids(world: &World) -> Vec<ComponentId> {
         vec![world
             .component_id::<T>()
-            .expect("Component needs to be initialized for this world")]
-    }
-
-    fn fetch(world: &'w World, table: &'w Table, row: TableRow) -> Self::Item {
-        let id = T::get_component_ids(world)[0];
-        unsafe {
-            let ptr = table
-                .get_component(id, row)
-                .expect("failed to receive item from table");
-            ptr.deref()
-        }
+            .expect("Tried to query a Component that has not been spawned in the world")]
     }
 }
 
 impl<'w, T1: Component, T2: Component> Queryable<'w> for (T1, T2) {
     type Item = (&'w T1, &'w T2);
+    type State = (ComponentId, ComponentId);
+
+    fn fetch(world: &'w World, state: &Self::State, table: &'w Table, row: TableRow) -> Self::Item {
+        let (id0, id1) = state;
+        unsafe {
+            let ptr1 = table
+                .get_component(*id0, row)
+                .expect("failed to receive item from table");
+            let ptr2 = table
+                .get_component(*id1, row)
+                .expect("failed to receive item from table");
+            (ptr1.deref(), ptr2.deref())
+        }
+    }
+
+    fn init_state(world: &World) -> Self::State {
+        (
+            world
+                .component_id::<T1>()
+                .expect("Tried to query a Component that has not been spawned in the world"),
+            world
+                .component_id::<T2>()
+                .expect("Tried to query a Component that has not been spawned in the world"),
+        )
+    }
 
     fn get_component_ids(world: &World) -> Vec<ComponentId> {
         vec![
@@ -52,19 +85,6 @@ impl<'w, T1: Component, T2: Component> Queryable<'w> for (T1, T2) {
                 .expect("Component needs to be initialized for this world"),
         ]
     }
-
-    fn fetch(world: &'w World, table: &'w Table, row: TableRow) -> Self::Item {
-        let ids = <(T1, T2)>::get_component_ids(world);
-        unsafe {
-            let ptr1 = table
-                .get_component(ids[0], row)
-                .expect("failed to receive item from table");
-            let ptr2 = table
-                .get_component(ids[1], row)
-                .expect("failed to receive item from table");
-            (ptr1.deref(), ptr2.deref())
-        }
-    }
 }
 
 pub struct Query<'world, T: Queryable<'world>> {
@@ -72,7 +92,7 @@ pub struct Query<'world, T: Queryable<'world>> {
     matched_tables: Vec<TableId>,
     current_table: usize,
     current_row: TableRow,
-    _phantom: PhantomData<&'world T>,
+    state: T::State,
 }
 
 impl<'world, T: Queryable<'world>> Query<'world, T> {
@@ -80,13 +100,14 @@ impl<'world, T: Queryable<'world>> Query<'world, T> {
         let mut matched_tables: Vec<TableId> = Vec::new();
         let component_ids = T::get_component_ids(world);
         let (archetype_ids, matched_tables) = world.archetypes.get_query_archetypes(&component_ids);
+        let state = T::init_state(world);
 
         Self {
             world,
             matched_tables,
             current_table: 0,
             current_row: TableRow(0),
-            _phantom: PhantomData,
+            state,
         }
     }
 }
@@ -110,7 +131,7 @@ impl<'world, T: Queryable<'world>> Iterator for Query<'world, T> {
 
         let row = self.current_row;
         self.current_row += 1;
-        Some(T::fetch(self.world, table, row))
+        Some(T::fetch(self.world, &self.state, table, row))
     }
 }
 
