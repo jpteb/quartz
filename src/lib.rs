@@ -10,7 +10,7 @@ pub mod storage;
 use archetype::Archetypes;
 use component::{Bundle, Component, ComponentId, Components};
 use entity::{Entities, Entity, EntityLocation};
-use query::{Query, Queryable};
+use query::{MutQuery, Query, Queryable};
 use storage::Tables;
 
 #[derive(Debug)]
@@ -116,6 +116,10 @@ impl World {
 
     pub fn query<'w, T: Queryable<'w>>(&'w self) -> Query<'w, T> {
         Query::new(self)
+    }
+
+    pub fn query_mut<'w, T: Queryable<'w>>(&'w mut self) -> MutQuery<'w, T> {
+        MutQuery::new(self)
     }
 
     pub fn component_id<T: Component>(&self) -> Option<ComponentId> {

@@ -135,6 +135,54 @@ impl<'world, T: Queryable<'world>> Iterator for Query<'world, T> {
     }
 }
 
+pub struct MutQuery<'world, T: Queryable<'world>> {
+    world: &'world mut World,
+    matched_tables: Vec<TableId>,
+    current_table: usize,
+    current_row: TableRow,
+    state: T::State,
+}
+
+impl<'world, T: Queryable<'world>> MutQuery<'world, T> {
+    pub(crate) fn new(world: &'world mut World) -> Self {
+        let mut matched_tables: Vec<TableId> = Vec::new();
+        let component_ids = T::get_component_ids(world);
+        let (archetype_ids, matched_tables) = world.archetypes.get_query_archetypes(&component_ids);
+        let state = T::init_state(world);
+
+        Self {
+            world,
+            matched_tables,
+            current_table: 0,
+            current_row: TableRow(0),
+            state,
+        }
+    }
+}
+
+impl<'world, T: Queryable<'world>> Iterator for MutQuery<'world, T> {
+    type Item = T::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_table >= self.matched_tables.len() {
+            return None;
+        }
+        let table: &'world mut Table = {
+            let table_id = self.matched_tables[self.current_table];
+            self.world.tables.get_mut(table_id)?
+        };
+        if self.current_row >= table.len() {
+            self.current_table += 1;
+            self.current_row = TableRow(0);
+            // return self.next();
+        }
+
+        let row = self.current_row;
+        self.current_row += 1;
+        Some(T::fetch(self.world, &self.state, table, row))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{component::Component, entity::Entity, World};
