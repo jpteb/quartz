@@ -21,7 +21,7 @@ pub struct ComponentFetcher<'w> {
     table: Option<&'w Table>,
 }
 
-impl<'w, T: Component> Queryable<'w> for T {
+impl<'w, T: Component> Queryable<'w> for &T {
     type Item = &'w T;
     type State = ComponentId;
 
@@ -47,7 +47,7 @@ impl<'w, T: Component> Queryable<'w> for T {
     }
 }
 
-impl<'w, T1: Component, T2: Component> Queryable<'w> for (T1, T2) {
+impl<'w, T1: Component, T2: Component> Queryable<'w> for (&T1, &T2) {
     type Item = (&'w T1, &'w T2);
     type State = (ComponentId, ComponentId);
 
@@ -158,7 +158,7 @@ mod tests {
 
         assert_eq!(entity, Entity::from(0, 0));
 
-        let mut query = world.query::<MyComponent>();
+        let mut query = world.query::<&MyComponent>();
         assert_eq!(query.next(), Some(&MyComponent(1)));
         assert_eq!(query.next(), None);
     }
@@ -179,12 +179,12 @@ mod tests {
         assert_eq!(entity, Entity::from(0, 0));
         assert_eq!(entity2, Entity::from(0, 1));
 
-        let mut query = world.query::<MyComponent>();
+        let mut query = world.query::<&MyComponent>();
         assert_eq!(query.next(), Some(&MyComponent(1)));
         assert_eq!(query.next(), Some(&MyComponent(1337)));
         assert_eq!(query.next(), None);
 
-        let mut query = world.query::<Position>();
+        let mut query = world.query::<&Position>();
         assert_eq!(
             query.next(),
             Some(&Position {
@@ -195,7 +195,7 @@ mod tests {
         );
         assert_eq!(query.next(), None);
 
-        let mut query = world.query::<(MyComponent, Position)>();
+        let mut query = world.query::<(&MyComponent, &Position)>();
         assert_eq!(
             query.next(),
             Some((
@@ -220,7 +220,7 @@ mod tests {
         }
 
         let mut count = 0;
-        for (i, e) in world.query::<MyComponent>().enumerate() {
+        for (i, e) in world.query::<&MyComponent>().enumerate() {
             assert_eq!(e, &MyComponent(i as u32));
             count += 1;
         }
