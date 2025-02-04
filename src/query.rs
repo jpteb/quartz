@@ -139,11 +139,12 @@ impl<'world, T: Queryable<'world>> Iterator for Query<'world, T> {
 mod tests {
     use crate::{component::Component, entity::Entity, World};
 
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+    #[derive(Debug, PartialEq, Eq, Clone, Copy, IntoBytes, FromBytes, Immutable, KnownLayout)]
     struct MyComponent(u32);
     impl Component for MyComponent {}
 
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy, IntoBytes, FromBytes, Immutable, KnownLayout)]
     struct Position {
         x: f32,
         y: f32,

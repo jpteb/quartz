@@ -6,8 +6,10 @@ use std::{
     ops::{Add, AddAssign},
 };
 
+use zerocopy::IntoBytes;
+
 use crate::{
-    component::{ComponentId, ComponentInfo, Components},
+    component::{Component, ComponentId, ComponentInfo, Components},
     entity::Entity,
     ptr::{MutPtr, OwningPtr, Ptr},
 };
@@ -138,13 +140,13 @@ impl Table {
     pub(crate) fn reserve(&mut self, additional: usize) {
         if self.capacity() - self.len() < additional {
             self.entities.reserve(additional);
-            self.realloc_columns(self.capacity() + additional);
+            self.reserve_columns(additional);
         }
     }
 
-    fn realloc_columns(&mut self, new_capacity: usize) {
+    fn reserve_columns(&mut self, additional: usize) {
         for col in self.columns.values_mut() {
-            col.realloc(new_capacity);
+            col.reserve(additional);
         }
     }
 
@@ -192,55 +194,32 @@ impl Drop for Table {
 }
 
 #[derive(Debug)]
-pub(crate) struct Column {
+pub(crate) struct Column<const N: usize> {
     item_layout: Layout,
-    data: NonNull<u8>,
+    data: Vec<[u8; N]>,
     drop: Option<unsafe fn(OwningPtr<'_>)>,
-    len: usize,
-    capacity: usize,
+    // len: usize,
+    // capacity: usize,
 }
 
-impl Column {
+impl<const N: usize> Column<N> {
     fn new(component_info: &ComponentInfo) -> Self {
         let item_layout = component_info.layout;
-        let data = unsafe {
-            NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align()))
-        };
+        let data = Vec::new();
 
         Self {
             item_layout,
             data,
             drop: component_info.drop,
-            len: 0,
-            capacity: 0,
+            // len: 0,
+            // capacity: 0,
         }
     }
 
     pub fn with_capacity(component_info: &ComponentInfo, capacity: usize) -> Self {
-        let item_layout = component_info.layout;
-
-        // let data = if capacity == 0 || item_layout.size() == 0 {
-        //     // create an aligned dangling pointer
-        //     unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut(item_layout.align())) }
-        // } else {
-        //     let (array_layout, _off) = item_layout
-        //         .repeat(capacity)
-        //         .expect("Array layout creation should be successful!");
-        //
-        //     let data = unsafe { std::alloc::alloc(array_layout) };
-        //     NonNull::new(data).unwrap_or_else(|| handle_alloc_error(array_layout))
-        // };
-        //
-        // Self {
-        //     item_layout,
-        //     data,
-        //     drop: component_info.drop,
-        //     len: 0,
-        //     capacity,
-        // }
         let mut init = Self::new(component_info);
         if capacity != 0 {
-            init.realloc(capacity);
+            init.reserve(capacity);
         }
         init
     }
@@ -249,49 +228,62 @@ impl Column {
         self.item_layout.size() == 0
     }
 
-    fn capacity(&self) -> usize {
-        self.capacity
+    fn len(&self) -> usize {
+        debug_assert_eq!(self.data.len() % self.item_layout.size(), 0);
+        self.data.len() / self.item_layout.size()
     }
 
-    pub fn realloc(&mut self, new_capacity: usize) {
-        if !self.is_zst() {
-            let (array_layout, _) = self
-                .item_layout
-                .repeat(self.capacity)
-                .expect("Array layout creation should succeed");
+    fn capacity(&self) -> usize {
+        debug_assert_eq!(self.data.capacity() % self.item_layout.size(), 0);
+        self.data.capacity() / self.item_layout.size()
+    }
 
-            let (new_layout, _) = self
-                .item_layout
-                .repeat(new_capacity)
-                .expect("Array layout creation should succeed");
+    pub fn reserve(&mut self, additional: usize) {
+        self.data.reserve(additional * self.item_layout.size());
+    }
 
-            let data = if self.capacity() != 0 {
-                unsafe { std::alloc::realloc(self.data.as_ptr(), array_layout, new_layout.size()) }
-            } else {
-                unsafe { std::alloc::alloc(new_layout) }
-            };
-
-            self.data = NonNull::new(data).unwrap_or_else(|| handle_alloc_error(new_layout));
+    pub fn push<T: Component>(&mut self, component: T) {
+        let len = dbg!(self.len());
+        let size = self.item_layout.size();
+        if len == self.capacity() {
+            self.reserve(1);
         }
-        self.capacity = new_capacity;
+        dbg!(&self.data.capacity());
+        // component.write_to(&mut self.data[len..]);
+        // // SAFETY: The necessary bytes have been allocated by the call to reserve.
+        // // The data has been initialized by zerocopy with the write_to call above.
+        // unsafe {
+        //     self.data.set_len(len + size);
+        // }
+        self.data.push(component.as_bytes());
+    }
+
+    pub fn get<T: Component>(&self, index: usize) -> Option<&T> {
+        let size = self.item_layout.size();
+        let index = index * size;
+        // Some(T::ref_from_bytes(&self.data[index..index + size]).unwrap())
+        None
     }
 
     #[inline]
     fn get_ptr(&self) -> Ptr<'_> {
-        unsafe { Ptr::new(self.data) }
+        let ptr = self.data.as_ptr();
+        let nn = NonNull::new(ptr.cast_mut()).unwrap();
+        unsafe { Ptr::new(nn) }
     }
 
     #[inline]
     fn get_ptr_mut(&mut self) -> MutPtr<'_> {
-        unsafe { MutPtr::new(self.data) }
+        let ptr = self.data.as_mut_ptr();
+        let nn = NonNull::new(ptr).unwrap();
+        unsafe { MutPtr::new(nn) }
     }
 
     pub(crate) unsafe fn initialize_unchecked(&mut self, index: usize, value: OwningPtr) {
         let size = self.item_layout.size();
-        let dst = self.data.byte_add(index * size);
+        let dst = self.get_ptr_mut().byte_add(index * size);
         //TODO: is this always nonoverlapping?
         std::ptr::copy_nonoverlapping(value.as_ptr(), dst.as_ptr(), size);
-        self.len += 1;
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> Ptr<'_> {
@@ -307,7 +299,7 @@ impl Column {
         if let Some(drop) = self.drop {
             self.drop = None;
             let size = self.item_layout.size();
-            let len = self.len;
+            let len = self.len();
 
             for i in 0..len {
                 let item = self.get_ptr_mut().byte_add(i * size).promote();
@@ -317,11 +309,12 @@ impl Column {
 
             self.drop = Some(drop);
         }
+        self.data.clear();
     }
 
     fn drop_last(&mut self) {
         let size = self.item_layout.size();
-        let len = self.len;
+        let len = self.len();
         if let Some(drop) = self.drop {
             self.drop = None;
 
@@ -333,37 +326,27 @@ impl Column {
 
             self.drop = Some(drop);
         }
-        self.len -= 1;
+        self.data.truncate(len - size);
     }
 
     fn swap_remove(&mut self, index: usize) {
-        debug_assert_ne!(index, self.len - 1);
+        debug_assert_ne!(index, self.len() - 1);
         unsafe {
             core::ptr::swap_nonoverlapping::<u8>(
                 self.get_unchecked_mut(index).as_ptr(),
-                self.get_unchecked_mut(self.len - 1).as_ptr(),
+                self.get_unchecked_mut(self.len() - 1).as_ptr(),
                 self.item_layout.size(),
             )
         };
         // self.drop_last();
-        self.len -= 1;
     }
 }
 
-impl Drop for Column {
+impl<const N: usize> Drop for Column<N> {
     fn drop(&mut self) {
         unsafe {
-            if self.capacity != 0 {
+            if self.capacity() != 0 {
                 self.clear();
-                if !self.is_zst() {
-                    std::alloc::dealloc(
-                        self.data.as_ptr(),
-                        self.item_layout
-                            .repeat(self.capacity)
-                            .expect("Array layout creation should be successful")
-                            .0,
-                    )
-                }
             }
         };
     }
@@ -371,6 +354,7 @@ impl Drop for Column {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         component::{Component, Components},
         ptr::OwningPtr,
@@ -378,8 +362,11 @@ mod tests {
 
     use super::{Column, Tables};
 
+    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+    #[derive(Debug, PartialEq, IntoBytes, FromBytes, Immutable, KnownLayout)]
     struct MyComponent {
-        _position: (f32, f32, f32),
+        // _position: (f32, f32, f32),
+        _position: [f32; 3],
     }
     impl Component for MyComponent {}
 
@@ -393,10 +380,10 @@ mod tests {
         assert_eq!(column.item_layout, component_info.layout);
 
         let c1 = MyComponent {
-            _position: (1.0, 2.0, 3.0),
+            _position: [1.0, 2.0, 3.0],
         };
         let c2 = MyComponent {
-            _position: (3.0, 2.0, 1.0),
+            _position: [3.0, 2.0, 1.0],
         };
 
         OwningPtr::make(c1, |ptr| unsafe { column.initialize_unchecked(0, ptr) });
@@ -415,6 +402,28 @@ mod tests {
                 ptr = ptr.add(1);
             }
         }
+    }
+
+    #[test]
+    fn push_column() {
+        let mut components = Components::new();
+        let component_id = components.register_component::<MyComponent>();
+        let component_info = components.get_info(&component_id).unwrap();
+
+        let mut column = Column::with_capacity(&component_info, 5);
+        assert_eq!(column.data.capacity(), component_info.layout.size() * 5);
+
+        let c1 = MyComponent {
+            _position: [1.0, 2.0, 3.0],
+        };
+
+        column.push(c1);
+        assert_eq!(
+            column.get(0),
+            Some(&MyComponent {
+                _position: [1.0, 2.0, 3.0],
+            })
+        );
     }
 
     #[test]
@@ -471,7 +480,7 @@ mod tests {
                 column.initialize_unchecked(i, ptr)
             });
         }
-        assert_eq!(column.len, 5);
+        assert_eq!(column.len(), 5);
 
         unsafe {
             let ptr = column.get_unchecked(2);
@@ -479,7 +488,7 @@ mod tests {
         }
 
         column.swap_remove(2);
-        assert_eq!(column.len, 4);
+        assert_eq!(column.len(), 4);
 
         unsafe {
             let ptr = column.get_unchecked(2);
@@ -487,9 +496,9 @@ mod tests {
         }
 
         column.drop_last();
-        assert_eq!(column.len, 3);
+        assert_eq!(column.len(), 3);
         column.drop_last();
-        assert_eq!(column.len, 2);
+        assert_eq!(column.len(), 2);
 
         unsafe {
             let ptr = column.get_unchecked(1);

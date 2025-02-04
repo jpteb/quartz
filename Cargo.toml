@@ -8,6 +8,7 @@ authors = ["Jan Philipp Tebernum <jan.tebernum@pm.me>"]
 bench = false
 
 [dependencies]
+zerocopy = { version = "0.8.15", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5.1"

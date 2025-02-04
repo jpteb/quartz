@@ -1,8 +1,13 @@
 use std::{alloc::Layout, any::TypeId, borrow::Cow, collections::HashMap, mem::needs_drop};
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use crate::ptr::OwningPtr;
 
-pub trait Component: Send + Sync + 'static {}
+pub trait Component:
+    IntoBytes + FromBytes + Immutable + KnownLayout + Send + Sync + 'static
+{
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ComponentId(usize);
@@ -134,11 +139,14 @@ impl<C0: Component, C1: Component> Bundle for (C0, C1) {
 mod tests {
     use std::any::type_name;
 
+    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
     use super::{Component, ComponentId, Components};
 
     impl Component for u8 {}
     impl Component for u32 {}
 
+    #[derive(IntoBytes, FromBytes, Immutable, KnownLayout)]
     struct MyComponent;
     impl Component for MyComponent {}
 
